@@ -1,0 +1,20 @@
+{
+  "builds": [
+    {
+      "src": "app.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "app.py"
+    }
+  ],
+  "env": {
+    "ANTHROPIC_API_KEY": "@anthropic_api_key",
+    "MODEL": "claude-sonnet-4-6",
+    "PORTFOLIO_DIR": "/tmp/portfolio",
+    "OUTPUT_FILE": "/tmp/portfolio_summary.xlsx"
+  }
+}

@@ -12,7 +12,7 @@ from openpyxl.utils import get_column_letter
 import anthropic
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=False)  # Only load .env if it exists locally
 
 PORTFOLIO_DIR = os.getenv("PORTFOLIO_DIR", r"C:\AI\Portcos Project\Q4 Data")
 OUTPUT_FILE   = os.getenv("OUTPUT_FILE",   r"C:\AI\Portcos Project\Portfolio_Summary.xlsx")
@@ -114,7 +114,10 @@ class PortfolioSession:
     def __init__(self, status_callback=None):
         self.companies = []
         self.comps = {}
-        self.client = anthropic.Anthropic()
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+        self.client = anthropic.Anthropic(api_key=api_key)
         self._emit = status_callback or (lambda e: None)
 
     def _execute_tool(self, name, inputs):
