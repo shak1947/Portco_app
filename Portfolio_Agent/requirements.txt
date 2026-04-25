@@ -1,0 +1,5 @@
+flask
+anthropic
+openpyxl
+yfinance
+python-dotenv
