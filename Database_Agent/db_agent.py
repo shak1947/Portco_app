@@ -25,6 +25,33 @@ MAX_ITER      = int(os.getenv("MAX_ITERATIONS", "10"))
 litellm.set_verbose = False
 
 
+def _serialize_tool_call(tool_call):
+    function = getattr(tool_call, "function", None)
+    return {
+        "id": getattr(tool_call, "id", None),
+        "type": getattr(tool_call, "type", "function"),
+        "function": {
+            "name": getattr(function, "name", None),
+            "arguments": getattr(function, "arguments", "") if function is not None else "",
+        },
+    }
+
+
+def _parse_tool_args(tool_call):
+    function = getattr(tool_call, "function", None)
+    if function is None:
+        return {}
+    raw_args = getattr(function, "arguments", "")
+    if isinstance(raw_args, dict):
+        return raw_args
+    if not isinstance(raw_args, str):
+        return {}
+    try:
+        return json.loads(raw_args)
+    except json.JSONDecodeError:
+        return {}
+
+
 # ── Agentic loop ───────────────────────────────────────────────────────────────
 def run_agent(user_question: str) -> str:
     """
@@ -61,8 +88,11 @@ def run_agent(user_question: str) -> str:
         message = response.choices[0].message
 
         # Append assistant turn to history
-        messages.append({"role": "assistant", "content": message.content,
-                          "tool_calls": message.tool_calls})
+        messages.append({
+            "role": "assistant",
+            "content": message.content or "",
+            "tool_calls": [_serialize_tool_call(tc) for tc in message.tool_calls],
+        })
 
         # No tool calls — model is done
         if not message.tool_calls:
@@ -72,10 +102,7 @@ def run_agent(user_question: str) -> str:
         # Execute each tool call
         for tool_call in message.tool_calls:
             name = tool_call.function.name
-            try:
-                args = json.loads(tool_call.function.arguments)
-            except json.JSONDecodeError:
-                args = {}
+            args = _parse_tool_args(tool_call)
 
             print(f"  [tool] {name}")
             result = execute_tool(name, args)

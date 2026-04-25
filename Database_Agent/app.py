@@ -4,7 +4,14 @@ Run: py app.py
 Open: http://localhost:5000
 """
 
-import os, json, time, threading, queue, litellm
+import json
+import logging
+import os
+import queue
+import threading
+import time
+
+import litellm
 from datetime import datetime
 from flask import Flask, render_template_string, request, Response, jsonify
 from dotenv import load_dotenv
@@ -14,9 +21,48 @@ from prompts import SYSTEM_PROMPT
 from sqlalchemy import text
 
 load_dotenv()
-app   = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
 MODEL = os.getenv("MODEL", "anthropic/claude-sonnet-4-6")
 litellm.set_verbose = False
+
+def _log_env_status():
+    env_keys = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"]
+    status = {key: bool(os.getenv(key)) for key in env_keys}
+    logger.info("Litellm startup check: MODEL=%s, env_keys=%s", MODEL, status)
+
+
+_log_env_status()
+
+
+def _serialize_tool_call(tool_call):
+    function = getattr(tool_call, "function", None)
+    return {
+        "id": getattr(tool_call, "id", None),
+        "type": getattr(tool_call, "type", "function"),
+        "function": {
+            "name": getattr(function, "name", None),
+            "arguments": getattr(function, "arguments", "") if function is not None else "",
+        },
+    }
+
+
+def _parse_tool_args(tool_call):
+    function = getattr(tool_call, "function", None)
+    if function is None:
+        return {}
+    raw_args = getattr(function, "arguments", "")
+    if isinstance(raw_args, dict):
+        return raw_args
+    if not isinstance(raw_args, str):
+        return {}
+    try:
+        return json.loads(raw_args)
+    except json.JSONDecodeError:
+        return {}
+
 
 # ── Agent runner ───────────────────────────────────────────────────────────────
 def run_agent_streaming(user_question: str, response_queue: queue.Queue):
@@ -36,8 +82,11 @@ def run_agent_streaming(user_question: str, response_queue: queue.Queue):
             return
 
         message = response.choices[0].message
-        messages.append({"role": "assistant", "content": message.content,
-                          "tool_calls": message.tool_calls})
+        messages.append({
+            "role": "assistant",
+            "content": message.content or "",
+            "tool_calls": [_serialize_tool_call(tc) for tc in message.tool_calls],
+        })
 
         if not message.tool_calls:
             response_queue.put({"type": "answer", "msg": message.content or ""})
@@ -45,10 +94,13 @@ def run_agent_streaming(user_question: str, response_queue: queue.Queue):
 
         for tc in message.tool_calls:
             name = tc.function.name
-            try:
-                args = json.loads(tc.function.arguments)
-            except:
-                args = {}
+            args = _parse_tool_args(tc)
+            logger.info(
+                "Received tool call: name=%s id=%s args=%s",
+                name,
+                getattr(tc, "id", None),
+                getattr(getattr(tc, "function", None), "arguments", None),
+            )
 
             response_queue.put({"type": "tool_start", "tool": name,
                                  "detail": args.get("rationale") or args.get("sql","")[:80]})
@@ -612,6 +664,16 @@ def index():
 @app.route("/api/model")
 def api_model():
     return jsonify({"model": MODEL})
+
+@app.route("/api/health")
+def api_health():
+    env_keys = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"]
+    env_status = {key: bool(os.getenv(key)) for key in env_keys}
+    return jsonify({
+        "model": MODEL,
+        "env_status": env_status,
+        "tool_count": len(TOOL_DEFINITIONS),
+    })
 
 @app.route("/api/portfolio")
 def api_portfolio():
