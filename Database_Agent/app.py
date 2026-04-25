@@ -38,15 +38,22 @@ _log_env_status()
 
 
 def _serialize_tool_call(tool_call):
-    function = getattr(tool_call, "function", None)
-    return {
-        "id": getattr(tool_call, "id", None),
-        "type": getattr(tool_call, "type", "function"),
-        "function": {
-            "name": getattr(function, "name", None),
-            "arguments": getattr(function, "arguments", "") if function is not None else "",
-        },
-    }
+    """Convert ChatCompletionMessageToolCall to a plain dict."""
+    try:
+        function = getattr(tool_call, "function", None)
+        func_dict = {}
+        if function:
+            func_dict["name"] = str(getattr(function, "name", ""))
+            func_dict["arguments"] = str(getattr(function, "arguments", ""))
+        
+        return {
+            "id": str(getattr(tool_call, "id", "")),
+            "type": str(getattr(tool_call, "type", "function")),
+            "function": func_dict,
+        }
+    except Exception as e:
+        logger.warning("Failed to serialize tool_call: %s", e)
+        return {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
 
 
 def _parse_tool_args(tool_call):
