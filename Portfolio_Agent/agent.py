@@ -116,7 +116,10 @@ class PortfolioSession:
         self.comps = {}
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
+            import sys
+            print(f"DEBUG: ANTHROPIC_API_KEY not found. Available env vars: {list(os.environ.keys())}", file=sys.stderr)
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+        print(f"DEBUG: API key found, length={len(api_key)}", file=sys.stderr)
         self.client = anthropic.Anthropic(api_key=api_key)
         self._emit = status_callback or (lambda e: None)
 
