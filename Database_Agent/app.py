@@ -64,6 +64,22 @@ def _parse_tool_args(tool_call):
         return {}
 
 
+def _get_provider_api_key():
+    provider = MODEL.split("/")[0].lower() if MODEL else ""
+    env_map = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "gpt": "OPENAI_API_KEY",
+    }
+    key_name = env_map.get(provider)
+    if key_name:
+        logger.info("Provider %s mapped to env var %s", provider, key_name)
+        return os.getenv(key_name)
+    logger.info("Provider %s has no mapped env var", provider)
+    return None
+
+
 # ── Agent runner ───────────────────────────────────────────────────────────────
 def run_agent_streaming(user_question: str, response_queue: queue.Queue):
     messages = [
@@ -75,8 +91,13 @@ def run_agent_streaming(user_question: str, response_queue: queue.Queue):
     for iteration in range(12):
         try:
             response = litellm.completion(
-                model=MODEL, messages=messages,
-                tools=TOOL_DEFINITIONS, tool_choice="auto", max_tokens=4096)
+                model=MODEL,
+                messages=messages,
+                tools=TOOL_DEFINITIONS,
+                tool_choice="auto",
+                max_tokens=4096,
+                api_key=_get_provider_api_key(),
+            )
         except Exception as e:
             response_queue.put({"type": "error", "msg": str(e)})
             return

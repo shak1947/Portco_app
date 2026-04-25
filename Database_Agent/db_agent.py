@@ -52,6 +52,22 @@ def _parse_tool_args(tool_call):
         return {}
 
 
+def _get_provider_api_key():
+    provider = MODEL.split("/")[0].lower() if MODEL else ""
+    env_map = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "gpt": "OPENAI_API_KEY",
+    }
+    key_name = env_map.get(provider)
+    if key_name:
+        print(f"Provider {provider} mapped to env var {key_name}")
+        return os.getenv(key_name)
+    print(f"Provider {provider} has no mapped env var")
+    return None
+
+
 # ── Agentic loop ───────────────────────────────────────────────────────────────
 def run_agent(user_question: str) -> str:
     """
@@ -83,6 +99,7 @@ def run_agent(user_question: str) -> str:
             tools=TOOL_DEFINITIONS,
             tool_choice="auto",
             max_tokens=MAX_TOKENS,
+            api_key=_get_provider_api_key(),
         )
 
         message = response.choices[0].message
