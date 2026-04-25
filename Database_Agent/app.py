@@ -103,17 +103,18 @@ def run_agent_streaming(user_question: str, response_queue: queue.Queue):
             return
 
         message = response.choices[0].message
+        tool_calls_list = list(message.tool_calls) if message.tool_calls else []
         messages.append({
             "role": "assistant",
             "content": message.content or "",
-            "tool_calls": [_serialize_tool_call(tc) for tc in message.tool_calls],
+            "tool_calls": [_serialize_tool_call(tc) for tc in tool_calls_list],
         })
 
-        if not message.tool_calls:
+        if not tool_calls_list:
             response_queue.put({"type": "answer", "msg": message.content or ""})
             return
 
-        for tc in message.tool_calls:
+        for tc in tool_calls_list:
             name = tc.function.name
             args = _parse_tool_args(tc)
             logger.info(

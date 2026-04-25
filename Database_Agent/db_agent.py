@@ -103,21 +103,22 @@ def run_agent(user_question: str) -> str:
         )
 
         message = response.choices[0].message
+        tool_calls_list = list(message.tool_calls) if message.tool_calls else []
 
         # Append assistant turn to history
         messages.append({
             "role": "assistant",
             "content": message.content or "",
-            "tool_calls": [_serialize_tool_call(tc) for tc in message.tool_calls],
+            "tool_calls": [_serialize_tool_call(tc) for tc in tool_calls_list],
         })
 
         # No tool calls — model is done
-        if not message.tool_calls:
+        if not tool_calls_list:
             print("\n[done] Agent returned final response")
             return message.content or ""
 
         # Execute each tool call
-        for tool_call in message.tool_calls:
+        for tool_call in tool_calls_list:
             name = tool_call.function.name
             args = _parse_tool_args(tool_call)
 
