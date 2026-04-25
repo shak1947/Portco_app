@@ -292,7 +292,19 @@ After ALL {len(selected_files)} companies are processed, call write_summary_repo
                 time.sleep(60)
                 continue
 
-            messages.append({"role": "assistant", "content": response.content})
+            # Convert content blocks to dict format for message history
+            content_for_history = []
+            for block in response.content:
+                if block.type == "text":
+                    content_for_history.append({"type": "text", "text": block.text})
+                elif block.type == "tool_use":
+                    content_for_history.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input
+                    })
+            messages.append({"role": "assistant", "content": content_for_history})
 
             if response.stop_reason == "end_turn":
                 for block in response.content:
