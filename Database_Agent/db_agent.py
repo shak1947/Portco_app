@@ -103,7 +103,12 @@ def run_agent(user_question: str) -> str:
         )
 
         message = response.choices[0].message
-        tool_calls_list = list(message.tool_calls) if message.tool_calls else []
+        
+        # Safely convert tool_calls iterator to list
+        try:
+            tool_calls_list = list(message.tool_calls) if message.tool_calls else []
+        except (TypeError, AttributeError):
+            tool_calls_list = []
 
         # Append assistant turn to history
         messages.append({

@@ -103,7 +103,13 @@ def run_agent_streaming(user_question: str, response_queue: queue.Queue):
             return
 
         message = response.choices[0].message
-        tool_calls_list = list(message.tool_calls) if message.tool_calls else []
+        
+        # Safely convert tool_calls iterator to list
+        try:
+            tool_calls_list = list(message.tool_calls) if message.tool_calls else []
+        except (TypeError, AttributeError):
+            tool_calls_list = []
+        
         messages.append({
             "role": "assistant",
             "content": message.content or "",
