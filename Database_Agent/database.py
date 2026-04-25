@@ -5,7 +5,8 @@ Handles portfolio company tables AND public market comp tables.
 
 import os
 import json
-import pandas as pd
+from datetime import datetime, date, time
+from decimal import Decimal
 from sqlalchemy import create_engine, text, inspect, MetaData, Table, Column
 from sqlalchemy import Integer, String, Float, BigInteger
 from sqlalchemy.exc import SQLAlchemyError
@@ -18,6 +19,16 @@ connect_args = {"sslmode": "require"} if any(x in DATABASE_URL for x in ["supaba
 engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
 
 
+def serialize_value(value):
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "ignore")
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+
 def execute_query(sql: str, limit: int = 500) -> dict:
     sql = sql.strip()
     first_word = sql.split()[0].upper() if sql.split() else ""
@@ -26,15 +37,16 @@ def execute_query(sql: str, limit: int = 500) -> dict:
                 "columns": [], "rows": [], "row_count": 0}
     try:
         with engine.connect() as conn:
-            df = pd.read_sql(text(sql), conn)
-            truncated = len(df) > limit
-            if truncated:
-                df = df.head(limit)
-            for col in df.columns:
-                if df[col].dtype == "object":
-                    df[col] = df[col].astype(str)
-            return {"success": True, "columns": df.columns.tolist(), "rows": df.values.tolist(),
-                    "row_count": len(df), "truncated": truncated, "error": None}
+            result = conn.execute(text(sql))
+            columns = list(result.keys())
+            rows = []
+            for row in result:
+                rows.append([serialize_value(value) for value in row])
+                if len(rows) >= limit:
+                    break
+            truncated = result.rowcount is not None and result.rowcount > limit
+            return {"success": True, "columns": columns, "rows": rows,
+                    "row_count": len(rows), "truncated": truncated, "error": None}
     except SQLAlchemyError as e:
         return {"success": False, "error": str(e), "columns": [], "rows": [], "row_count": 0}
 
