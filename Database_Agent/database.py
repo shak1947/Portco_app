@@ -96,7 +96,335 @@ def create_all_tables():
         Column("ticker", String(20)), Column("period", String(10)),
         Column("revenue_mm", Float), Column("gross_margin", Float),
         Column("ebitda_margin", Float), Column("fetched_date", String(30)))
+    Table("investment_thesis", metadata,
+        Column("id", Integer, primary_key=True),
+        Column("company_id", Integer),
+        Column("hypothesis", String),
+        Column("key_assumptions", String),
+        Column("target_exit_year", Integer),
+        Column("target_revenue_mm", Float),
+        Column("target_ebitda_margin", Float),
+        Column("target_exit_multiple", Float),
+        Column("status", String(20)),
+        Column("created_date", String(30)),
+        Column("updated_date", String(30)))
+    Table("thesis_milestones", metadata,
+        Column("id", Integer, primary_key=True),
+        Column("thesis_id", Integer),
+        Column("milestone_text", String),
+        Column("target_date", String(20)),
+        Column("achieved", Integer))
     metadata.create_all(engine, checkfirst=True)
+
+
+def upsert_company(name: str, sector: str, entry_year: int, entry_ev_mm: float, ownership_pct: float) -> dict:
+    try:
+        with engine.begin() as conn:
+            existing = conn.execute(text("SELECT id FROM companies WHERE name = :name"),
+                                   {"name": name}).scalar()
+            if existing:
+                conn.execute(text("UPDATE companies SET sector=:sector, entry_year=:entry_year, "
+                                 "entry_ev_mm=:entry_ev_mm, ownership_pct=:ownership_pct WHERE id=:id"),
+                            {"sector": sector, "entry_year": entry_year, "entry_ev_mm": entry_ev_mm,
+                             "ownership_pct": ownership_pct, "id": existing})
+                return {"success": True, "company_id": existing, "action": "updated"}
+            else:
+                result = conn.execute(text("INSERT INTO companies(name, sector, entry_year, entry_ev_mm, ownership_pct) "
+                                          "VALUES(:name, :sector, :entry_year, :entry_ev_mm, :ownership_pct) "
+                                          "RETURNING id"),
+                                     {"name": name, "sector": sector, "entry_year": entry_year,
+                                      "entry_ev_mm": entry_ev_mm, "ownership_pct": ownership_pct})
+                company_id = result.scalar()
+                return {"success": True, "company_id": company_id, "action": "created"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def upsert_financials(company_id: int, period: str, revenue_mm: float, ebitda_mm: float,
+                     ebitda_margin: float, yoy_growth: float = None) -> dict:
+    try:
+        with engine.begin() as conn:
+            existing = conn.execute(text("SELECT id FROM quarterly_financials WHERE company_id = :company_id AND period = :period"),
+                                   {"company_id": company_id, "period": period}).scalar()
+            if existing:
+                conn.execute(text("UPDATE quarterly_financials SET revenue_mm=:revenue_mm, ebitda_mm=:ebitda_mm, "
+                                 "ebitda_margin=:ebitda_margin, yoy_growth=:yoy_growth WHERE id=:id"),
+                            {"revenue_mm": revenue_mm, "ebitda_mm": ebitda_mm, "ebitda_margin": ebitda_margin,
+                             "yoy_growth": yoy_growth, "id": existing})
+                return {"success": True, "financial_id": existing, "action": "updated"}
+            else:
+                result = conn.execute(text("INSERT INTO quarterly_financials(company_id, period, revenue_mm, ebitda_mm, ebitda_margin, yoy_growth) "
+                                          "VALUES(:company_id, :period, :revenue_mm, :ebitda_mm, :ebitda_margin, :yoy_growth) "
+                                          "RETURNING id"),
+                                     {"company_id": company_id, "period": period, "revenue_mm": revenue_mm,
+                                      "ebitda_mm": ebitda_mm, "ebitda_margin": ebitda_margin, "yoy_growth": yoy_growth})
+                financial_id = result.scalar()
+                return {"success": True, "financial_id": financial_id, "action": "created"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def upsert_kpi(company_id: int, period: str, kpi_name: str, kpi_value: float, kpi_unit: str) -> dict:
+    try:
+        with engine.begin() as conn:
+            existing = conn.execute(text("SELECT id FROM kpis WHERE company_id = :company_id AND period = :period AND kpi_name = :kpi_name"),
+                                   {"company_id": company_id, "period": period, "kpi_name": kpi_name}).scalar()
+            if existing:
+                conn.execute(text("UPDATE kpis SET kpi_value=:kpi_value, kpi_unit=:kpi_unit WHERE id=:id"),
+                            {"kpi_value": kpi_value, "kpi_unit": kpi_unit, "id": existing})
+                return {"success": True, "kpi_id": existing, "action": "updated"}
+            else:
+                result = conn.execute(text("INSERT INTO kpis(company_id, period, kpi_name, kpi_value, kpi_unit) "
+                                          "VALUES(:company_id, :period, :kpi_name, :kpi_value, :kpi_unit) "
+                                          "RETURNING id"),
+                                     {"company_id": company_id, "period": period, "kpi_name": kpi_name,
+                                      "kpi_value": kpi_value, "kpi_unit": kpi_unit})
+                kpi_id = result.scalar()
+                return {"success": True, "kpi_id": kpi_id, "action": "created"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_company_detail(company_id: int) -> dict:
+    try:
+        with engine.connect() as conn:
+            company = conn.execute(text("SELECT id, name, sector, entry_year, entry_ev_mm, ownership_pct FROM companies WHERE id = :id"),
+                                  {"id": company_id}).mappings().first()
+            if not company:
+                return {"success": False, "error": f"Company {company_id} not found"}
+
+            financials = conn.execute(text("SELECT period, revenue_mm, ebitda_mm, ebitda_margin, yoy_growth FROM quarterly_financials WHERE company_id = :id ORDER BY period"),
+                                     {"id": company_id}).mappings().all()
+
+            kpis = conn.execute(text("SELECT period, kpi_name, kpi_value, kpi_unit FROM kpis WHERE company_id = :id ORDER BY period, kpi_name"),
+                               {"id": company_id}).mappings().all()
+
+            return {
+                "success": True,
+                "company": dict(company),
+                "financials": [dict(f) for f in financials],
+                "kpis": [dict(k) for k in kpis]
+            }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_company_comps(sector: str) -> dict:
+    try:
+        with engine.connect() as conn:
+            comps = conn.execute(text("SELECT ticker, name, sector_key, ev_ebitda, revenue_growth, ebitda_margin, gross_margin FROM market_comps WHERE sector_key = :sector ORDER BY name"),
+                                {"sector": sector}).mappings().all()
+
+            if not comps:
+                return {"success": True, "comps": []}
+
+            return {
+                "success": True,
+                "comps": [dict(c) for c in comps],
+                "sector": sector,
+                "count": len(comps)
+            }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def upsert_thesis(company_id: int, hypothesis: str, key_assumptions: str, target_exit_year: int,
+                 target_revenue_mm: float, target_ebitda_margin: float, target_exit_multiple: float,
+                 status: str) -> dict:
+    try:
+        from datetime import datetime
+        now = datetime.utcnow().isoformat()
+        with engine.begin() as conn:
+            existing = conn.execute(text("SELECT id FROM investment_thesis WHERE company_id = :company_id"),
+                                   {"company_id": company_id}).scalar()
+            if existing:
+                conn.execute(text("UPDATE investment_thesis SET hypothesis=:hypothesis, key_assumptions=:key_assumptions, "
+                                 "target_exit_year=:target_exit_year, target_revenue_mm=:target_revenue_mm, "
+                                 "target_ebitda_margin=:target_ebitda_margin, target_exit_multiple=:target_exit_multiple, "
+                                 "status=:status, updated_date=:updated_date WHERE id=:id"),
+                            {"hypothesis": hypothesis, "key_assumptions": key_assumptions, "target_exit_year": target_exit_year,
+                             "target_revenue_mm": target_revenue_mm, "target_ebitda_margin": target_ebitda_margin,
+                             "target_exit_multiple": target_exit_multiple, "status": status, "updated_date": now, "id": existing})
+                return {"success": True, "thesis_id": existing, "action": "updated"}
+            else:
+                result = conn.execute(text("INSERT INTO investment_thesis(company_id, hypothesis, key_assumptions, "
+                                          "target_exit_year, target_revenue_mm, target_ebitda_margin, target_exit_multiple, "
+                                          "status, created_date, updated_date) "
+                                          "VALUES(:company_id, :hypothesis, :key_assumptions, :target_exit_year, "
+                                          ":target_revenue_mm, :target_ebitda_margin, :target_exit_multiple, :status, :created_date, :updated_date) "
+                                          "RETURNING id"),
+                                     {"company_id": company_id, "hypothesis": hypothesis, "key_assumptions": key_assumptions,
+                                      "target_exit_year": target_exit_year, "target_revenue_mm": target_revenue_mm,
+                                      "target_ebitda_margin": target_ebitda_margin, "target_exit_multiple": target_exit_multiple,
+                                      "status": status, "created_date": now, "updated_date": now})
+                thesis_id = result.scalar()
+                return {"success": True, "thesis_id": thesis_id, "action": "created"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_thesis(company_id: int) -> dict:
+    try:
+        with engine.connect() as conn:
+            thesis = conn.execute(text("SELECT id, company_id, hypothesis, key_assumptions, target_exit_year, "
+                                      "target_revenue_mm, target_ebitda_margin, target_exit_multiple, status, "
+                                      "created_date, updated_date FROM investment_thesis WHERE company_id = :company_id"),
+                                 {"company_id": company_id}).mappings().first()
+            milestones = []
+            if thesis:
+                milestones = conn.execute(text("SELECT id, thesis_id, milestone_text, target_date, achieved "
+                                              "FROM thesis_milestones WHERE thesis_id = :thesis_id ORDER BY target_date"),
+                                         {"thesis_id": thesis['id']}).mappings().all()
+            return {"success": True, "thesis": dict(thesis) if thesis else None,
+                    "milestones": [dict(m) for m in milestones]}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def upsert_milestone(thesis_id: int, milestone_text: str, target_date: str, achieved: int = 0) -> dict:
+    try:
+        with engine.begin() as conn:
+            existing = conn.execute(text("SELECT id FROM thesis_milestones WHERE thesis_id = :thesis_id AND milestone_text = :milestone_text"),
+                                   {"thesis_id": thesis_id, "milestone_text": milestone_text}).scalar()
+            if existing:
+                conn.execute(text("UPDATE thesis_milestones SET target_date=:target_date, achieved=:achieved WHERE id=:id"),
+                            {"target_date": target_date, "achieved": achieved, "id": existing})
+                return {"success": True, "milestone_id": existing, "action": "updated"}
+            else:
+                result = conn.execute(text("INSERT INTO thesis_milestones(thesis_id, milestone_text, target_date, achieved) "
+                                          "VALUES(:thesis_id, :milestone_text, :target_date, :achieved) RETURNING id"),
+                                     {"thesis_id": thesis_id, "milestone_text": milestone_text, "target_date": target_date,
+                                      "achieved": achieved})
+                milestone_id = result.scalar()
+                return {"success": True, "milestone_id": milestone_id, "action": "created"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def delete_milestone(milestone_id: int) -> dict:
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM thesis_milestones WHERE id = :id"), {"id": milestone_id})
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_all_thesis_statuses() -> dict:
+    try:
+        with engine.connect() as conn:
+            companies = conn.execute(text("SELECT c.id, c.name, c.sector, "
+                                         "t.status, t.target_exit_year, t.target_revenue_mm, "
+                                         "t.target_ebitda_margin, t.target_exit_multiple "
+                                         "FROM companies c LEFT JOIN investment_thesis t ON c.id = t.company_id "
+                                         "ORDER BY c.name")).mappings().all()
+            return {"success": True, "companies": [dict(c) for c in companies]}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_value_creation(company_id: int, current_multiple: float = None) -> dict:
+    try:
+        with engine.connect() as conn:
+            # Get company entry data
+            company = conn.execute(text("SELECT entry_ev_mm, entry_year FROM companies WHERE id = :id"),
+                                  {"id": company_id}).mappings().first()
+            if not company:
+                return {"success": False, "error": "Company not found"}
+
+            # Get entry-period financials (first period >= entry_year)
+            entry_fin = conn.execute(text("SELECT revenue_mm, ebitda_margin FROM quarterly_financials "
+                                         "WHERE company_id = :company_id ORDER BY period ASC LIMIT 1"),
+                                    {"company_id": company_id}).mappings().first()
+            if not entry_fin:
+                return {"success": False, "error": "No financial data found"}
+
+            # Get 2024-Q4 financials (current)
+            current_fin = conn.execute(text("SELECT revenue_mm, ebitda_mm, ebitda_margin FROM quarterly_financials "
+                                           "WHERE company_id = :company_id AND period = '2024-Q4'"),
+                                      {"company_id": company_id}).mappings().first()
+            if not current_fin:
+                return {"success": False, "error": "No 2024-Q4 financial data found"}
+
+            # Get thesis multiple (if exists)
+            thesis = conn.execute(text("SELECT target_exit_multiple FROM investment_thesis WHERE company_id = :company_id"),
+                                 {"company_id": company_id}).mappings().first()
+
+        # Computations
+        entry_rev = float(entry_fin['revenue_mm'])
+        entry_margin = float(entry_fin['ebitda_margin'])
+        entry_ev = float(company['entry_ev_mm'])
+
+        current_rev = float(current_fin['revenue_mm'])
+        current_ebitda = float(current_fin['ebitda_mm'])
+        current_margin = float(current_fin['ebitda_margin'])
+
+        entry_ebitda = entry_rev * entry_margin
+        implied_entry_multiple = entry_ev / entry_ebitda if entry_ebitda > 0 else 1.0
+
+        # Determine exit multiple
+        if current_multiple:
+            exit_multiple = float(current_multiple)
+        elif thesis and thesis.get('target_exit_multiple'):
+            exit_multiple = float(thesis['target_exit_multiple'])
+        else:
+            exit_multiple = implied_entry_multiple
+
+        current_ev = current_ebitda * exit_multiple
+
+        # Contribution calculations
+        rev_growth_contrib = (current_rev - entry_rev) * entry_margin * implied_entry_multiple
+        margin_contrib = (current_margin - entry_margin) * current_rev * implied_entry_multiple
+        multiple_contrib = (exit_multiple - implied_entry_multiple) * current_ebitda
+
+        value_created = current_ev - entry_ev
+        value_created_pct = value_created / entry_ev if entry_ev > 0 else 0
+        gross_moic = current_ev / entry_ev if entry_ev > 0 else 0
+
+        return {
+            "success": True,
+            "company_id": company_id,
+            "entry_ev_mm": entry_ev,
+            "current_implied_ev": current_ev,
+            "value_created_mm": value_created,
+            "value_created_pct": value_created_pct,
+            "gross_moic": gross_moic,
+            "rev_growth_contrib": rev_growth_contrib,
+            "margin_contrib": margin_contrib,
+            "multiple_contrib": multiple_contrib,
+            "entry_multiple": implied_entry_multiple,
+            "current_multiple": exit_multiple,
+            "entry_rev": entry_rev,
+            "current_rev": current_rev,
+            "entry_margin": entry_margin,
+            "current_margin": current_margin
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_portfolio_value_creation() -> dict:
+    try:
+        with engine.connect() as conn:
+            companies = conn.execute(text("SELECT id, name FROM companies")).mappings().all()
+
+        results = []
+        for company in companies:
+            company_id = company['id']
+            vc = get_value_creation(company_id)
+            if vc.get("success"):
+                result = {
+                    "company_id": company_id,
+                    "name": company['name'],
+                    **{k: v for k, v in vc.items() if k != "success"}
+                }
+                results.append(result)
+
+        # Sort by value created descending
+        results.sort(key=lambda x: x.get('value_created_mm', 0), reverse=True)
+        return {"success": True, "companies": results}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 def seed_sample_data():
