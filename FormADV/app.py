@@ -1,6 +1,12 @@
 """
 Form ADV RAG System - Complete Flask API
 Retrieves from vector store, synthesizes with Claude
+
+Production-Ready Deployment Configuration:
+- Root directory: / (repository root)
+- Start command: python app.py
+- Health check: GET /api/health
+- Environment variables: OPENAI_API_KEY, ANTHROPIC_API_KEY
 """
 
 import os
