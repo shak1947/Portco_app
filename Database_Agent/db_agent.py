@@ -59,12 +59,13 @@ def _parse_tool_args(tool_call):
         return {}
 
 
-def _get_provider_api_key():
-    provider = MODEL.split("/")[0].lower() if MODEL else ""
+def _get_provider_api_key(model_name):
+    provider = model_name.split("/")[0].lower() if model_name else ""
     env_map = {
         "anthropic": "ANTHROPIC_API_KEY",
         "openai": "OPENAI_API_KEY",
         "google": "GOOGLE_API_KEY",
+        "gemini": "GOOGLE_API_KEY",
         "gpt": "OPENAI_API_KEY",
     }
     key_name = env_map.get(provider)
@@ -106,7 +107,7 @@ def run_agent(user_question: str) -> str:
             tools=TOOL_DEFINITIONS,
             tool_choice="auto",
             max_tokens=MAX_TOKENS,
-            api_key=_get_provider_api_key(),
+            api_key=_get_provider_api_key(MODEL),
         )
 
         message = response.choices[0].message

@@ -4,6 +4,7 @@ LiteLLM translates these for Claude, Gemini, GPT automatically.
 """
 
 import json
+import os
 from database import execute_query, get_schema
 
 TOOL_DEFINITIONS = [
@@ -51,6 +52,40 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate_value_creation",
+            "description": (
+                "Calculate the value creation bridge for a company from entry to current. "
+                "Decomposes value into EBITDA Growth, Multiple Expansion, and Debt Paydown."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_id": {"type": "integer", "description": "The ID of the portfolio company."},
+                },
+                "required": ["company_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_meeting_intelligence",
+            "description": (
+                "Search through processed meeting summaries for specific companies, decisions, or action items. "
+                "Use this to find qualitative context for financial trends."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Keyword or company name to search for."}
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -75,5 +110,29 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
         findings = tool_args.get("findings", "")
         notes    = tool_args.get("data_quality_notes", "")
         return findings + (f"\n\n**Data Quality Notes:** {notes}" if notes else "")
+
+    elif tool_name == "calculate_value_creation":
+        from database import get_value_creation
+        company_id = tool_args.get("company_id")
+        print(f"\n  [Analysis] Calculating Value Creation for ID: {company_id}")
+        result = get_value_creation(company_id)
+        return json.dumps(result)
+
+    elif tool_name == "search_meeting_intelligence":
+        query = tool_args.get("query", "").lower()
+        # Summaries are stored in c:\AI\summaries relative to this project structure
+        summaries_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "summaries"))
+        
+        results = []
+        if os.path.exists(summaries_dir):
+            for filename in os.listdir(summaries_dir):
+                if filename.endswith(".md"):
+                    path = os.path.join(summaries_dir, filename)
+                    with open(path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                        if query in content.lower() or query in filename.lower():
+                            results.append(f"### Source: {filename}\n{content}")
+        
+        return "\n\n".join(results) if results else f"No meeting intelligence found for '{query}'."
 
     return json.dumps({"error": f"Unknown tool: {tool_name}"})

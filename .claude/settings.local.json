@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:5000/api/portfolio)",
+      "Bash(python3 -c \"import sys, json; d = json.load\\(sys.stdin\\); print\\('Columns:', d.get\\('columns'\\)\\); print\\('First row:', d.get\\('rows'\\)[0] if d.get\\('rows'\\) else 'No rows'\\)\")",
+      "Bash(python3 -c \"import sys, json; d = json.load\\(sys.stdin\\); print\\('Status: OK' if d.get\\('success'\\) else 'Error'\\); print\\('Companies:', len\\(d.get\\('rows', []\\)\\)\\)\")"
+    ]
+  }
+}

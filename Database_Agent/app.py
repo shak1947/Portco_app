@@ -76,12 +76,13 @@ def _parse_tool_args(tool_call):
         return {}
 
 
-def _get_provider_api_key():
-    provider = MODEL.split("/")[0].lower() if MODEL else ""
+def _get_provider_api_key(model_name):
+    provider = model_name.split("/")[0].lower() if model_name else ""
     env_map = {
         "anthropic": "ANTHROPIC_API_KEY",
         "openai": "OPENAI_API_KEY",
         "google": "GOOGLE_API_KEY",
+        "gemini": "GOOGLE_API_KEY",
         "gpt": "OPENAI_API_KEY",
     }
     key_name = env_map.get(provider)
@@ -93,7 +94,7 @@ def _get_provider_api_key():
 
 
 # ── Agent runner ───────────────────────────────────────────────────────────────
-def run_agent_streaming(user_question: str, response_queue: queue.Queue):
+def run_agent_streaming(user_question: str, response_queue: queue.Queue, model_name: str):
     messages = [
         {"role": "system",  "content": SYSTEM_PROMPT},
         {"role": "user",    "content": user_question},
@@ -103,12 +104,12 @@ def run_agent_streaming(user_question: str, response_queue: queue.Queue):
     for iteration in range(12):
         try:
             response = litellm.completion(
-                model=MODEL,
+                model=model_name,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
                 tool_choice="auto",
                 max_tokens=4096,
-                api_key=_get_provider_api_key(),
+                api_key=_get_provider_api_key(model_name),
             )
         except Exception as e:
             response_queue.put({"type": "error", "msg": str(e)})
@@ -420,7 +421,12 @@ body { font-family: "Sora", sans-serif; background: var(--grey1); color: var(--t
     <button class="tab-btn" onclick="switchTab('comps')">📊 Market Comps</button>
     <button class="tab-btn" onclick="switchTab('upload')">📤 Upload</button>
   </div>
-  <div class="header-model" id="modelBadge">Loading...</div>
+  <select class="header-model" id="modelSelector" style="background:var(--navy2); color:var(--teal); border:1px solid var(--teal); border-radius:4px; padding:4px; cursor:pointer;">
+    <option value="anthropic/claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
+    <option value="google/gemini-2.0-flash">Gemini 2.0 Flash</option>
+    <option value="google/gemini-1.5-pro">Gemini 1.5 Pro</option>
+    <option value="openai/gpt-4o">GPT-4o</option>
+  </select>
 </div>
 
 <div class="main">
@@ -698,9 +704,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function loadModel() {
-  fetch("/api/model").then(r=>r.json()).then(d=>{
-    document.getElementById("modelBadge").textContent = d.model;
-  });
+  fetch("/api/model")
+    .then(r => r.json())
+    .then(d => {
+      const selector = document.getElementById("modelSelector");
+      if (selector) selector.value = d.model;
+    })
+    .catch(err => console.error("Error loading default model:", err));
 }
 
 function loadSidebar() {
@@ -1180,8 +1190,9 @@ function sendMessage() {
   currentThinkingEl = thinkingEl;
   isAgentRunning = true;
   document.getElementById("sendBtn").disabled = true;
+  const model = document.getElementById("modelSelector").value;
 
-  const es = new EventSource(`/api/ask?q=${encodeURIComponent(question)}`);
+  const es = new EventSource(`/api/ask?q=${encodeURIComponent(question)}&model=${encodeURIComponent(model)}`);
   let toolTraceEl = null;
 
   es.onmessage = (e) => {
@@ -1427,6 +1438,8 @@ def api_price_history(ticker):
 @app.route("/api/ask")
 def api_ask():
     question = request.args.get("q", "")
+    model_name = request.args.get("model", MODEL)
+    
     if not question:
         return Response("data: {}\n\n", mimetype="text/event-stream")
 
@@ -1434,7 +1447,7 @@ def api_ask():
 
     def run():
         try:
-            run_agent_streaming(question, q)
+            run_agent_streaming(question, q, model_name)
         except Exception as e:
             q.put({"type": "error", "msg": str(e)})
 
