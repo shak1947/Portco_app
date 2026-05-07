@@ -1,0 +1,5 @@
+{
+  "name": "Form ADV RAG",
+  "description": "Retrieval-Augmented Generation for Form ADV analysis",
+  "builder": "nixpacks"
+}

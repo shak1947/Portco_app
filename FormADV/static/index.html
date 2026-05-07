@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Form ADV Research Assistant</title>
+    <script src="https://unpkg.com/marked@11.1.1/marked.umd.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 280px;
+            background-color: #fafafa;
+            border-right: 1px solid #e0e0e0;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .sidebar-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #999;
+            margin-bottom: 15px;
+        }
+
+        .history-item {
+            padding: 10px;
+            margin-bottom: 8px;
+            background-color: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1.4;
+            transition: all 0.2s;
+        }
+
+        .history-item:hover {
+            background-color: #f0f0f0;
+            border-color: #2196F3;
+        }
+
+        .history-item.active {
+            background-color: #E3F2FD;
+            border-color: #2196F3;
+        }
+
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1565C0 0%, #0D47A1 100%);
+            color: white;
+            padding: 30px 40px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .content {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .input-section {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .input-label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 10px;
+        }
+
+        textarea {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 80px;
+            transition: border-color 0.2s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #2196F3;
+            box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+        }
+
+        button {
+            padding: 12px 28px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            align-self: flex-end;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #1976D2;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #2196F3;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .answer-section {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .answer-section h2 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #555;
+        }
+
+        .answer-text {
+            line-height: 1.7;
+            color: #333;
+        }
+
+        .answer-text h1, .answer-text h2, .answer-text h3 {
+            margin-top: 15px;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .answer-text h1:first-child, .answer-text h2:first-child, .answer-text h3:first-child {
+            margin-top: 0;
+        }
+
+        .answer-text table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 15px 0;
+        }
+
+        .answer-text th, .answer-text td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+
+        .answer-text th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+        }
+
+        .answer-text ul, .answer-text ol {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+
+        .answer-text li {
+            margin-bottom: 5px;
+        }
+
+        .sources-section {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .sources-title {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #555;
+        }
+
+        .source-count {
+            display: inline-block;
+            background-color: #f0f0f0;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .source-item {
+            margin-bottom: 12px;
+        }
+
+        details {
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        summary {
+            padding: 12px 15px;
+            background-color: #f9f9f9;
+            cursor: pointer;
+            font-weight: 500;
+            user-select: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        summary:hover {
+            background-color: #f0f0f0;
+        }
+
+        details[open] summary {
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .source-header {
+            flex: 1;
+        }
+
+        .source-firm {
+            font-weight: 600;
+            color: #2196F3;
+        }
+
+        .source-meta {
+            font-size: 13px;
+            color: #999;
+            margin-top: 3px;
+        }
+
+        .source-similarity {
+            font-size: 13px;
+            color: #666;
+            min-width: 80px;
+            text-align: right;
+        }
+
+        .similarity-bar {
+            display: inline-block;
+            width: 40px;
+            height: 4px;
+            background-color: #e0e0e0;
+            border-radius: 2px;
+            margin-left: 5px;
+            vertical-align: middle;
+        }
+
+        .similarity-fill {
+            display: block;
+            height: 100%;
+            background: linear-gradient(90deg, #66BB6A 0%, #2196F3 100%);
+            border-radius: 2px;
+        }
+
+        .source-detail {
+            padding: 15px;
+            background-color: white;
+            line-height: 1.6;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid #e0e0e0;
+                height: auto;
+                max-height: 150px;
+                overflow-x: auto;
+                display: flex;
+                gap: 10px;
+            }
+
+            .sidebar-title {
+                position: absolute;
+                left: -9999px;
+            }
+
+            .history-item {
+                margin: 0;
+                white-space: nowrap;
+                flex-shrink: 0;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .input-wrapper {
+                flex-direction: column;
+            }
+
+            button {
+                align-self: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-title">Query History</div>
+            <div id="history"></div>
+        </div>
+
+        <div class="main">
+            <div class="header">
+                <h1>Form ADV Research Assistant</h1>
+                <p>Ask questions about PE firm Form ADV Part 2A brochures</p>
+            </div>
+
+            <div class="content">
+                <div class="input-section">
+                    <label class="input-label">Ask a question:</label>
+                    <div class="input-wrapper">
+                        <textarea id="question" placeholder="e.g., What are management fees? How do firms handle conflicts of interest?"></textarea>
+                        <button id="askBtn" onclick="submitQuery()">Ask</button>
+                    </div>
+                </div>
+
+                <div id="result" class="hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const questionInput = document.getElementById('question');
+        const askBtn = document.getElementById('askBtn');
+        const resultDiv = document.getElementById('result');
+        const historyDiv = document.getElementById('history');
+
+        let queryHistory = [];
+        let currentResult = null;
+
+        // Load history from localStorage
+        function loadHistory() {
+            const saved = localStorage.getItem('queryHistory');
+            if (saved) {
+                queryHistory = JSON.parse(saved);
+                renderHistory();
+            }
+        }
+
+        function saveHistory() {
+            localStorage.setItem('queryHistory', JSON.stringify(queryHistory));
+        }
+
+        function renderHistory() {
+            historyDiv.innerHTML = queryHistory.map((q, idx) => `
+                <div class="history-item ${idx === 0 ? 'active' : ''}" onclick="selectHistory(${idx})">
+                    ${q.substring(0, 50)}${q.length > 50 ? '...' : ''}
+                </div>
+            `).join('');
+        }
+
+        function selectHistory(idx) {
+            const question = queryHistory[idx];
+            questionInput.value = question;
+
+            // Move to top
+            queryHistory = [question, ...queryHistory.filter((_, i) => i !== idx)];
+            saveHistory();
+            renderHistory();
+
+            // Display cached result if available (simplified—just show question)
+            // In a real app, you'd cache results too
+        }
+
+        async function submitQuery() {
+            const question = questionInput.value.trim();
+            if (!question) {
+                alert('Please enter a question');
+                return;
+            }
+
+            // Disable button and show loading
+            askBtn.disabled = true;
+            resultDiv.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Retrieving and synthesizing information...</p>
+                </div>
+            `;
+            resultDiv.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question, top_k: 5 }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                currentResult = data;
+
+                // Add to history
+                if (!queryHistory.includes(question)) {
+                    queryHistory = [question, ...queryHistory];
+                    if (queryHistory.length > 20) queryHistory = queryHistory.slice(0, 20);
+                    saveHistory();
+                    renderHistory();
+                }
+
+                displayResult(data);
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="loading" style="color: #d32f2f;">
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <p style="font-size: 13px; margin-top: 10px;">Make sure the backend is running: <code>uvicorn src.api:app --reload</code></p>
+                    </div>
+                `;
+            } finally {
+                askBtn.disabled = false;
+            }
+        }
+
+        function displayResult(result) {
+            let answerHTML;
+            try {
+                // Try to use marked for markdown rendering
+                if (typeof marked === 'function') {
+                    answerHTML = marked(result.answer);
+                } else if (typeof marked === 'object' && marked.parse) {
+                    answerHTML = marked.parse(result.answer);
+                } else {
+                    throw new Error('marked not available');
+                }
+            } catch (e) {
+                // Fallback: simple escaping and line breaks
+                answerHTML = '<p>' + escapeHtml(result.answer).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+            }
+
+            const sourcesHTML = result.sources.map((source, idx) => `
+                <div class="source-item">
+                    <details>
+                        <summary>
+                            <div class="source-header">
+                                <div class="source-firm">${source.firm_name}</div>
+                                <div class="source-meta">Page ${source.page_number} • ${source.source_file}</div>
+                            </div>
+                            <div class="source-similarity">
+                                ${source.similarity.toFixed(3)}
+                                <span class="similarity-bar">
+                                    <span class="similarity-fill" style="width: ${source.similarity * 100}%"></span>
+                                </span>
+                            </div>
+                        </summary>
+                        <div class="source-detail">${escapeHtml(source.excerpt)}...</div>
+                    </details>
+                </div>
+            `).join('');
+
+            resultDiv.innerHTML = `
+                <div class="answer-section">
+                    <h2>Answer</h2>
+                    <div class="answer-text">${answerHTML}</div>
+                </div>
+
+                <div class="sources-section">
+                    <div class="sources-title">
+                        Sources
+                        <span class="source-count">${result.sources.length}</span>
+                    </div>
+                    ${sourcesHTML}
+                </div>
+            `;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Allow Enter key to submit (Ctrl+Enter or Cmd+Enter in textarea)
+        questionInput.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                submitQuery();
+            }
+        });
+
+        // Load history on page load
+        window.addEventListener('load', loadHistory);
+    </script>
+</body>
+</html>
