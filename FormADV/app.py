@@ -28,7 +28,7 @@ anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Initialize vector store
 chroma_client = chromadb.PersistentClient(path="Data/chroma_openai")
-collection = chroma_client.get_collection(name="form_adv")
+collection = chroma_client.get_or_create_collection(name="form_adv")
 
 
 class RAGPipeline:
