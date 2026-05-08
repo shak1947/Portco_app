@@ -1,0 +1,17 @@
+.venv/
+venv/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.DS_Store
+*.log
+Data/chroma*/
+Data/graph.duckdb*
+Data/progress.json
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+FormADV_RAG/
