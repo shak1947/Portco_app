@@ -40,6 +40,20 @@ anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 chroma_client = chromadb.PersistentClient(path="Data/chroma_openai")
 collection = chroma_client.get_or_create_collection(name="form_adv")
 
+# Build embeddings on startup if empty (Railway filesystem issue)
+def ensure_embeddings_exist():
+    """Build embeddings on startup if vector store is empty."""
+    if collection.count() == 0:
+        logger.info("Vector store is empty, building embeddings...")
+        try:
+            from build_embeddings import build_embeddings
+            if build_embeddings():
+                logger.info(f"Embeddings built successfully: {collection.count()} chunks")
+            else:
+                logger.error("Failed to build embeddings")
+        except Exception as e:
+            logger.error(f"Error building embeddings: {e}")
+
 
 class RAGPipeline:
     """Complete RAG pipeline: retrieve + synthesize"""
@@ -234,6 +248,9 @@ def get_firms():
 
 
 if __name__ == "__main__":
+    # Ensure embeddings exist before starting
+    ensure_embeddings_exist()
+
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_ENV") == "development"
     logger.info(f"Starting Form ADV RAG API on port {port}")

@@ -58,7 +58,8 @@ def build_embeddings(pdf_dir: str = "Data/adv", output_dir: str = "Data/chroma_o
     # Initialize clients
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
-        print("ERROR: OPENAI_API_KEY not set", file=sys.stderr)
+        print("WARNING: OPENAI_API_KEY not set, cannot build embeddings now", file=sys.stderr)
+        print("Embeddings will be built when app starts with API keys available", file=sys.stderr)
         return False
 
     openai_client = OpenAI(api_key=openai_api_key)
@@ -72,13 +73,17 @@ def build_embeddings(pdf_dir: str = "Data/adv", output_dir: str = "Data/chroma_o
 
     collection = chroma_client.get_or_create_collection(name="form_adv")
 
+    # Create output directory if needed
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
     # Process all PDFs
     pdf_files = list(Path(pdf_dir).glob("*.pdf"))
     if not pdf_files:
-        print(f"No PDFs found in {pdf_dir}", file=sys.stderr)
+        print(f"ERROR: No PDFs found in {pdf_dir}", file=sys.stderr)
         return False
 
-    print(f"Processing {len(pdf_files)} PDFs...")
+    print(f"Building embeddings for {len(pdf_files)} PDFs...")
+    print(f"Output directory: {output_dir}")
     total_chunks = 0
 
     for pdf_path in pdf_files:
