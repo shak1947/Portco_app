@@ -220,14 +220,16 @@ def health():
         if not supabase:
             return jsonify({"status": "unhealthy", "error": "Supabase not connected"}), 500
 
-        # Count embeddings in Supabase
-        response = supabase.table("form_adv_embeddings").select("COUNT(*)").execute()
-        count = response.data[0]["count"] if response.data else 0
+        # Verify table exists by fetching one row
+        response = supabase.table("form_adv_embeddings").select("id").limit(1).execute()
+
+        # If table exists and has data, it's healthy
+        has_data = len(response.data) > 0 if response.data else False
 
         return jsonify({
             "status": "healthy",
             "vector_store": "supabase_pgvector",
-            "chunks_indexed": count
+            "table_ready": has_data
         })
     except Exception as e:
         return jsonify({"status": "unhealthy", "error": str(e)}), 500
