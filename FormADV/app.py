@@ -15,6 +15,10 @@ from pathlib import Path
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
+
+# Disable Chroma telemetry to avoid posthog compatibility issues
+os.environ["CHROMA_TELEMETRY_IMPL"] = "none"
+
 import chromadb
 from openai import OpenAI
 from anthropic import Anthropic

@@ -8,6 +8,10 @@ import sys
 import json
 from pathlib import Path
 import PyPDF2
+
+# Disable Chroma telemetry to avoid posthog compatibility issues
+os.environ["CHROMA_TELEMETRY_IMPL"] = "none"
+
 import chromadb
 from openai import OpenAI
 
