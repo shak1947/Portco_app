@@ -1,28 +1,18 @@
 """
-Form ADV RAG System - Complete Flask API
-Retrieves from vector store, synthesizes with Claude
-
-Production-Ready Deployment Configuration:
-- Root directory: / (repository root)
-- Start command: python app.py
-- Health check: GET /api/health
-- Environment variables: OPENAI_API_KEY, ANTHROPIC_API_KEY
+Form ADV RAG System - Flask API with Supabase pgvector backend
+Retrieves embeddings from Supabase, synthesizes with Claude
 """
 
 import os
 import json
-from pathlib import Path
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
-
-# Disable Chroma telemetry to avoid posthog compatibility issues
-os.environ["CHROMA_TELEMETRY_IMPL"] = "none"
-
-import chromadb
 from openai import OpenAI
 from anthropic import Anthropic
+from supabase import create_client, Client
 import logging
+import numpy as np
 
 load_dotenv()
 
@@ -36,27 +26,23 @@ logger = logging.getLogger(__name__)
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-# Initialize vector store
-chroma_client = chromadb.PersistentClient(path="Data/chroma_openai")
-collection = chroma_client.get_or_create_collection(name="form_adv")
+# Initialize Supabase (requires SUPABASE_URL and SUPABASE_KEY env vars)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Build embeddings on startup if empty (Railway filesystem issue)
-def ensure_embeddings_exist():
-    """Build embeddings on startup if vector store is empty."""
-    if collection.count() == 0:
-        logger.info("Vector store is empty, building embeddings...")
-        try:
-            from build_embeddings import build_embeddings
-            if build_embeddings():
-                logger.info(f"Embeddings built successfully: {collection.count()} chunks")
-            else:
-                logger.error("Failed to build embeddings")
-        except Exception as e:
-            logger.error(f"Error building embeddings: {e}")
+supabase = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("Supabase connected")
+    except Exception as e:
+        logger.error(f"Supabase connection failed: {e}")
+else:
+    logger.error("SUPABASE_URL or SUPABASE_KEY not set")
 
 
 class RAGPipeline:
-    """Complete RAG pipeline: retrieve + synthesize"""
+    """RAG pipeline: retrieve embeddings from Supabase + synthesize with Claude"""
 
     def __init__(self, top_k: int = 5, model: str = "claude-sonnet-4-6"):
         self.top_k = top_k
@@ -65,60 +51,73 @@ class RAGPipeline:
 Answer questions based on the provided excerpts. Always cite your sources clearly.
 If information is not in the excerpts, say "This information is not available in the provided documents."
 
-Available firms:
-1. Bain & Company
-2. Clayton Dubilier & Rice
-3. CVC Capital Partners
-4. EQT Partners
-5. Hellman & Friedman
-6. Kelso & Company
-7. TA Associates
-8. Thoma Bravo
-9. Visa Inc.
-10. Warburg Pincus"""
+Available firms in the database:
+- Bain & Company
+- CD&R (Clayton Dubilier & Rice)
+- CVC Capital Partners
+- EQT Partners
+- Hellman & Friedman
+- Kelso & Company
+- TA Associates"""
 
     def retrieve(self, question: str) -> dict:
-        """Step 1: Embed question and retrieve relevant chunks"""
+        """Vector search in Supabase for relevant chunks."""
         logger.info(f"Retrieving chunks for: {question}")
 
-        # Embed question
-        embedding_response = openai_client.embeddings.create(
-            model="text-embedding-3-small",
-            input=question
-        )
-        query_embedding = embedding_response.data[0].embedding
+        if not supabase:
+            return {"chunks": [], "count": 0, "error": "Supabase not connected"}
 
-        # Search vector store
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=self.top_k
-        )
+        try:
+            # Embed the question
+            embedding_response = openai_client.embeddings.create(
+                model="text-embedding-3-small",
+                input=question
+            )
+            query_embedding = np.array(embedding_response.data[0].embedding)
 
-        chunks = []
-        if results["ids"] and results["ids"][0]:
-            for i, (chunk_id, distance, metadata, text) in enumerate(
-                zip(
-                    results["ids"][0],
-                    results["distances"][0],
-                    results["metadatas"][0],
-                    results["documents"][0]
+            # Fetch all embeddings from Supabase
+            response = supabase.table("form_adv_embeddings").select(
+                "id, firm_name, source_file, page_number, text, embedding"
+            ).execute()
+
+            if not response.data:
+                logger.info("No embeddings found in Supabase")
+                return {"chunks": [], "count": 0}
+
+            # Compute cosine similarity
+            similarities = []
+            for item in response.data:
+                db_embedding = np.array(item["embedding"])
+                # Cosine similarity
+                similarity = np.dot(query_embedding, db_embedding) / (
+                    np.linalg.norm(query_embedding) * np.linalg.norm(db_embedding)
                 )
-            ):
-                similarity = 1 - distance
+                similarities.append((similarity, item))
+
+            # Sort by similarity and take top_k
+            similarities.sort(reverse=True, key=lambda x: x[0])
+            top_results = similarities[:self.top_k]
+
+            chunks = []
+            for rank, (similarity, match) in enumerate(top_results, 1):
                 chunks.append({
-                    "rank": i + 1,
-                    "firm_name": metadata.get("firm_name"),
-                    "page_number": metadata.get("page_number"),
-                    "source_file": metadata.get("source_file"),
-                    "similarity": round(similarity, 3),
-                    "text": text
+                    "rank": rank,
+                    "firm_name": match.get("firm_name", "Unknown"),
+                    "page_number": match.get("page_number", 0),
+                    "source_file": match.get("source_file", "Unknown"),
+                    "similarity": round(float(similarity), 3),
+                    "text": match.get("text", "")
                 })
 
-        logger.info(f"Retrieved {len(chunks)} chunks")
-        return {"chunks": chunks, "count": len(chunks)}
+            logger.info(f"Retrieved {len(chunks)} chunks")
+            return {"chunks": chunks, "count": len(chunks)}
+
+        except Exception as e:
+            logger.error(f"Retrieval error: {e}")
+            return {"chunks": [], "count": 0, "error": str(e)}
 
     def synthesize(self, question: str, chunks: list) -> str:
-        """Step 2: Use Claude to synthesize answer from chunks"""
+        """Use Claude to synthesize answer from chunks."""
         logger.info("Synthesizing answer with Claude")
 
         # Build context from chunks
@@ -129,7 +128,7 @@ Available firms:
             )
         context = "\n\n---\n\n".join(context_parts)
 
-        # Call Claude with prompt caching
+        # Call Claude
         response = anthropic_client.messages.create(
             model=self.model,
             max_tokens=1024,
@@ -161,7 +160,7 @@ Answer based on the excerpts above and cite your sources."""
         return answer
 
     def query(self, question: str) -> dict:
-        """Complete RAG pipeline: retrieve -> synthesize"""
+        """Complete RAG pipeline: retrieve -> synthesize."""
         retrieval = self.retrieve(question)
         chunks = retrieval["chunks"]
 
@@ -218,12 +217,17 @@ def api_query():
 def health():
     """Health check endpoint"""
     try:
-        # Verify connections
-        collection.count()
+        if not supabase:
+            return jsonify({"status": "unhealthy", "error": "Supabase not connected"}), 500
+
+        # Count embeddings in Supabase
+        response = supabase.table("form_adv_embeddings").select("COUNT(*)").execute()
+        count = response.data[0]["count"] if response.data else 0
+
         return jsonify({
             "status": "healthy",
-            "vector_store": "connected",
-            "chunks_indexed": collection.count()
+            "vector_store": "supabase_pgvector",
+            "chunks_indexed": count
         })
     except Exception as e:
         return jsonify({"status": "unhealthy", "error": str(e)}), 500
@@ -234,26 +238,20 @@ def get_firms():
     """List available firms"""
     firms = [
         "Bain & Company",
-        "Clayton Dubilier & Rice",
+        "CD&R (Clayton Dubilier & Rice)",
         "CVC Capital Partners",
         "EQT Partners",
         "Hellman & Friedman",
         "Kelso & Company",
-        "TA Associates",
-        "Thoma Bravo",
-        "Visa Inc.",
-        "Warburg Pincus"
+        "TA Associates"
     ]
     return jsonify({"firms": firms, "count": len(firms)})
 
 
 if __name__ == "__main__":
-    # Ensure embeddings exist before starting
-    ensure_embeddings_exist()
-
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_ENV") == "development"
     logger.info(f"Starting Form ADV RAG API on port {port}")
-    logger.info(f"Vector store: Data/chroma_openai ({collection.count()} chunks)")
+    logger.info(f"Backend: Supabase pgvector")
     logger.info(f"Debug mode: {debug}")
     app.run(host="0.0.0.0", debug=debug, port=port)
