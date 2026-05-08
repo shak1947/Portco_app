@@ -73,12 +73,15 @@ Available firms in the database:
                 model="text-embedding-3-small",
                 input=question
             )
-            query_embedding = np.array(embedding_response.data[0].embedding)
+            query_embedding = np.array(embedding_response.data[0].embedding, dtype=np.float32)
+            logger.info(f"Generated embedding, shape: {query_embedding.shape}")
 
-            # Fetch all embeddings from Supabase
+            # Fetch all embeddings from Supabase (limit for testing)
             response = supabase.table("form_adv_embeddings").select(
                 "id, firm_name, source_file, page_number, text, embedding"
-            ).execute()
+            ).limit(500).execute()
+
+            logger.info(f"Fetched {len(response.data)} embeddings from Supabase")
 
             if not response.data:
                 logger.info("No embeddings found in Supabase")
@@ -87,12 +90,29 @@ Available firms in the database:
             # Compute cosine similarity
             similarities = []
             for item in response.data:
-                db_embedding = np.array(item["embedding"])
-                # Cosine similarity
-                similarity = np.dot(query_embedding, db_embedding) / (
-                    np.linalg.norm(query_embedding) * np.linalg.norm(db_embedding)
-                )
-                similarities.append((similarity, item))
+                try:
+                    # Parse embedding if it's a string (Supabase returns as JSON string)
+                    embedding = item["embedding"]
+                    if isinstance(embedding, str):
+                        embedding = json.loads(embedding)
+
+                    db_embedding = np.array(embedding, dtype=np.float32)
+
+                    # Verify shapes match
+                    if len(query_embedding) != len(db_embedding):
+                        logger.warning(f"Embedding size mismatch: {len(query_embedding)} vs {len(db_embedding)}")
+                        continue
+
+                    # Cosine similarity
+                    similarity = np.dot(query_embedding, db_embedding) / (
+                        np.linalg.norm(query_embedding) * np.linalg.norm(db_embedding)
+                    )
+                    similarities.append((similarity, item))
+                except Exception as e:
+                    logger.warning(f"Error processing embedding {item.get('id')}: {e}")
+                    continue
+
+            logger.info(f"Computed similarities for {len(similarities)} items")
 
             # Sort by similarity and take top_k
             similarities.sort(reverse=True, key=lambda x: x[0])
@@ -114,6 +134,8 @@ Available firms in the database:
 
         except Exception as e:
             logger.error(f"Retrieval error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {"chunks": [], "count": 0, "error": str(e)}
 
     def synthesize(self, question: str, chunks: list) -> str:
