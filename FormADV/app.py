@@ -83,10 +83,10 @@ Available firms in the database:
             query_embedding = np.array(embedding_response.data[0].embedding, dtype=np.float32)
             logger.info(f"Generated embedding, shape: {query_embedding.shape}")
 
-            # Fetch embeddings from Supabase
+            # Fetch embeddings from Supabase (fetch more to find diverse results)
             response = supabase.table("form_adv_embeddings").select(
                 "id, firm_name, source_file, page_number, text, embedding"
-            ).limit(500).execute()
+            ).limit(1000).execute()
 
             logger.info(f"Fetched {len(response.data)} embeddings from Supabase")
 
@@ -124,8 +124,8 @@ Available firms in the database:
             # Sort by similarity and take top_k
             similarities.sort(reverse=True, key=lambda x: x[0])
 
-            # Filter by minimum similarity threshold (0.3 for decent relevance)
-            min_similarity = 0.3
+            # Filter by minimum similarity threshold (0.25 to catch diverse results)
+            min_similarity = 0.25
             top_results = [s for s in similarities[:self.top_k] if s[0] >= min_similarity]
 
             if not top_results:
