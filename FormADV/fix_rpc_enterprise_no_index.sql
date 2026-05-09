@@ -1,7 +1,9 @@
--- Drop existing function to rebuild it properly
+-- RPC Function ONLY (no index creation)
+-- Use this if index creation fails due to memory constraints
+-- The function will work without the index (slightly slower, but functional)
+
 DROP FUNCTION IF EXISTS match_documents(vector, int, float) CASCADE;
 
--- Create improved RPC with better error handling and explicit type casting
 CREATE OR REPLACE FUNCTION match_documents(
   query_embedding vector(1536),
   match_count int DEFAULT 10,
@@ -41,16 +43,4 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
--- Note: Index creation may require increased maintenance_work_mem in some cases
--- If index creation fails with memory errors, contact Supabase support to increase it temporarily
--- or run: ALTER SYSTEM SET maintenance_work_mem = '256MB'; SELECT pg_reload_conf();
-
--- Try to create index with lower memory footprint
--- If this still fails, the function will work without the index (slower but functional)
-CREATE INDEX IF NOT EXISTS form_adv_embeddings_embedding_idx
-ON form_adv_embeddings
-USING ivfflat (embedding vector_cosine_ops)
-WITH (lists = 50);  -- Reduced from 100 to lower memory usage
-
--- Grant execute permission
 GRANT EXECUTE ON FUNCTION match_documents(vector, int, float) TO authenticated, anon;

@@ -39,7 +39,31 @@ This is:
 3. Create a new query and paste the contents of `fix_rpc_enterprise.sql`
 4. Review the SQL (it drops the old function and creates a new one)
 5. Click **Run**
-6. Verify success message
+
+#### If you get memory error (54000):
+
+This means your maintenance_work_mem is too low for the IVFFlat index. **This is normal and fixable**:
+
+**Option A (Recommended):** Run `fix_rpc_enterprise_no_index.sql` instead
+- Creates the RPC function WITHOUT the index
+- Function works immediately
+- Search is functional (no index means slightly slower, but acceptable for your data size)
+- Index can be created later or via support request
+
+**Option B:** Contact Supabase support
+- Ask them to temporarily increase `maintenance_work_mem` to 256MB
+- Then you can create the full index
+- They can do this without downtime
+
+**Option C:** Create index manually later
+- Run just the function SQL now (no index)
+- Create index separately after initial testing:
+  ```sql
+  CREATE INDEX CONCURRENTLY form_adv_embeddings_embedding_idx
+  ON form_adv_embeddings
+  USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 50);
+  ```
 
 ### Step 2: Test the RPC in Supabase SQL Editor
 
