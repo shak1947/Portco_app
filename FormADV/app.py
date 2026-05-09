@@ -135,13 +135,14 @@ FORMATTING:
             limit = min(self.top_k * 3, 30)
 
             try:
-                logger.info(f"Calling RPC with threshold=0.0 (no filter), limit={limit}")
+                logger.info(f"Calling RPC: limit={limit}, firm_filter={firm_filter}")
                 response = supabase.rpc(
                     "match_documents",
                     {
                         "query_embedding": query_embedding,
                         "match_count": limit,
-                        "match_threshold": 0.0
+                        "match_threshold": 0.0,
+                        "firm_name_filter": firm_filter
                     }
                 ).execute()
                 matches = response.data if response.data else []
