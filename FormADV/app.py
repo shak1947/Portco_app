@@ -75,6 +75,36 @@ Available firms in the database:
             return {"chunks": [], "count": 0, "error": "Supabase not connected"}
 
         try:
+            # Extract firm name from question if mentioned
+            firm_filter = None
+            available_firms = [
+                "Bain & Company", "Bain",
+                "CD&R", "Clayton Dubilier & Rice",
+                "CVC Capital Partners", "CVC",
+                "EQT Partners", "EQT",
+                "Hellman & Friedman", "Hellman",
+                "Kelso & Company", "Kelso",
+                "TA Associates", "TA Associate"
+            ]
+
+            question_lower = question.lower()
+            firm_mapping = {
+                "bain": "Bain",
+                "cd&r": "CD&R",
+                "clayton": "CD&R",
+                "cvc": "CVC",
+                "eqt": "EQT",
+                "hellman": "Hellman",
+                "kelso": "Kelso",
+                "ta": "TA Associate"
+            }
+
+            for keyword, firm_name in firm_mapping.items():
+                if keyword in question_lower:
+                    firm_filter = firm_name
+                    logger.info(f"Detected firm filter: {firm_filter}")
+                    break
+
             # Embed the question
             embedding_response = openai_client.embeddings.create(
                 model="text-embedding-3-small",
@@ -83,10 +113,16 @@ Available firms in the database:
             query_embedding = np.array(embedding_response.data[0].embedding, dtype=np.float32)
             logger.info(f"Generated embedding, shape: {query_embedding.shape}")
 
-            # Fetch embeddings from Supabase (fetch more to find diverse results)
-            response = supabase.table("form_adv_embeddings").select(
+            # Fetch embeddings from Supabase - filter by firm if detected
+            query = supabase.table("form_adv_embeddings").select(
                 "id, firm_name, source_file, page_number, text, embedding"
-            ).limit(1000).execute()
+            )
+
+            if firm_filter:
+                query = query.eq("firm_name", firm_filter)
+                logger.info(f"Filtering to firm: {firm_filter}")
+
+            response = query.limit(1000).execute()
 
             logger.info(f"Fetched {len(response.data)} embeddings from Supabase")
 
