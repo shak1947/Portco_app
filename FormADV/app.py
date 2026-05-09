@@ -340,64 +340,94 @@ Your answer (concise, 2-4 sentences, cite sources):"""
         }
 
     def query_agentic(self, question: str) -> dict:
-        """Multi-step RAG: Claude decides what queries to run, makes multiple retrievals, synthesizes."""
+        """Multi-step RAG: Query each firm separately, then synthesize comparison."""
         start_time = time.time()
-        logger.info(f"Agentic query: {question}")
+        logger.info(f"[AGENTIC] Starting multi-firm analysis for: {question}")
 
-        # List of firms for Claude to query
         firms = ["Bain", "CD&R", "CVC", "EQT", "Hellman", "Kelso", "TA Associate"]
+        all_chunks = []
+        firm_results = {}
 
-        # Claude decides what sub-queries to run
-        planning_response = anthropic_client.messages.create(
+        # Step 1: Query each firm for the question
+        logger.info(f"[AGENTIC] Querying {len(firms)} firms...")
+        for firm in firms:
+            # Create firm-specific query by temporarily removing firm filter
+            retrieval = self.retrieve(question)
+
+            # Filter results to this firm only
+            firm_chunks = [c for c in retrieval.get("chunks", []) if c["firm_name"] == firm]
+
+            if firm_chunks:
+                logger.info(f"[AGENTIC] {firm}: {len(firm_chunks)} chunks found")
+                all_chunks.extend(firm_chunks)
+                firm_results[firm] = firm_chunks
+            else:
+                # If no results with semantic search, do direct query for this firm
+                direct_response = supabase.table("form_adv_embeddings").select(
+                    "id, firm_name, source_file, page_number, text"
+                ).eq("firm_name", firm).limit(5).execute()
+
+                if direct_response.data:
+                    logger.info(f"[AGENTIC] {firm}: {len(direct_response.data)} chunks from direct query")
+                    for chunk in direct_response.data:
+                        all_chunks.append({
+                            "rank": len(all_chunks) + 1,
+                            "firm_name": chunk.get("firm_name"),
+                            "page_number": chunk.get("page_number", 0),
+                            "source_file": chunk.get("source_file", "Unknown"),
+                            "similarity": 0.5,
+                            "text": chunk.get("text", "")
+                        })
+                        firm_results[firm] = all_chunks[-1:]
+
+        # Step 2: Create comparison context
+        comparison_context = "FIRM COMPARISON DATA:\n"
+        for firm, chunks in firm_results.items():
+            comparison_context += f"\n{firm}:\n"
+            for chunk in chunks[:2]:
+                comparison_context += f"  - {chunk['text'][:100]}...\n"
+
+        logger.info(f"[AGENTIC] Collected {len(all_chunks)} total chunks from {len(firm_results)} firms")
+
+        # Step 3: Synthesize with comparison prompt
+        if not all_chunks:
+            return {"question": question, "answer": "No data found.", "chunk_count": 0, "total_time_ms": 0}
+
+        # Use Claude to compare across firms
+        synthesis_start = time.time()
+        response = anthropic_client.messages.create(
             model=self.model,
-            max_tokens=300,
+            max_tokens=512,
+            system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
             messages=[{
                 "role": "user",
-                "content": f"""Question: {question}
+                "content": f"""Compare data across all firms to answer this question:
+{question}
 
-Available firms: {', '.join(firms)}
+Data from all firms:
+{comparison_context}
 
-Based on the question, what specific queries should be run for each firm to answer it comprehensively?
-Format: One query per line, like:
-- Bain: [query about Bain]
-- CD&R: [query about CD&R]
-(only include firms that are relevant)"""
+Provide a clear comparison analysis. Identify which firm has the most/best metric asked about.
+Be specific with numbers and cite which firms you're comparing."""
             }]
         )
 
-        plan = planning_response.content[0].text
-        logger.info(f"Claude's plan:\n{plan}")
-
-        # Execute queries for each firm mentioned in the plan
-        all_chunks = []
-        for firm in firms:
-            if firm.lower() in plan.lower():
-                # Create a firm-specific query
-                sub_query = f"{question} {firm}"
-                logger.info(f"Sub-query: {sub_query}")
-                result = self.retrieve(sub_query)
-                all_chunks.extend(result.get("chunks", []))
-
-        # If no chunks found, fall back to single query
-        if not all_chunks:
-            return self.query(question)
-
-        # Synthesize all results
-        logger.info(f"Synthesizing {len(all_chunks)} chunks from multi-firm queries")
-        answer, metrics = self.synthesize(question, all_chunks[:20])  # Limit to 20 chunks
-
+        answer = response.content[0].text
+        synthesis_time = round((time.time() - synthesis_start) * 1000)
         total_time = round((time.time() - start_time) * 1000)
+
+        logger.info(f"[AGENTIC] Complete in {total_time}ms")
 
         return {
             "question": question,
             "answer": answer,
             "sources": [
-                {"firm": c["firm_name"], "page": c["page_number"], "similarity": c["similarity"]}
+                {"firm": c["firm_name"], "page": c["page_number"], "similarity": c.get("similarity", 0.5)}
                 for c in all_chunks[:10]
             ],
             "chunk_count": len(all_chunks),
             "total_time_ms": total_time,
-            "reasoning": plan
+            "firms_analyzed": list(firm_results.keys())
         }
 
 
