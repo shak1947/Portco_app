@@ -62,9 +62,11 @@ Available firms in the database:
 
     def retrieve(self, question: str) -> dict:
         """Vector search in Supabase for relevant chunks."""
+        print(f"[RETRIEVE] Starting retrieval for: {question}", flush=True)
         logger.info(f"Retrieving chunks for: {question}")
 
         if not supabase:
+            print("[RETRIEVE] Supabase not connected!", flush=True)
             return {"chunks": [], "count": 0, "error": "Supabase not connected"}
 
         try:
@@ -227,10 +229,13 @@ def api_query():
         if not question:
             return jsonify({"error": "Question cannot be empty"}), 400
 
+        print(f"[DEBUG] Query endpoint called with: {question}", flush=True)
         result = pipeline.query(question)
+        print(f"[DEBUG] Query result: {len(result.get('sources', []))} sources", flush=True)
         return jsonify(result)
 
     except Exception as e:
+        print(f"[ERROR] {e}", flush=True)
         logger.error(f"Error in query: {e}")
         return jsonify({"error": str(e)}), 500
 
