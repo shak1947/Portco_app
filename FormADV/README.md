@@ -25,16 +25,17 @@ Sources:
 ## 🏗️ Architecture
 
 ```
-User Query → EMBED (OpenAI) → RETRIEVE (Chroma) → SYNTHESIZE (Claude) → Answer with Citations
+User Query → EMBED (OpenAI) → RETRIEVE (Supabase pgvector) → SYNTHESIZE (Claude) → Answer with Citations
 ```
 
 **Tech Stack:**
 - Frontend: HTML/CSS/JavaScript
 - Backend: Flask + Flask-CORS
-- Embeddings: OpenAI text-embedding-3-small (1536-dim)
-- Vector Store: Chroma (9,037 chunks)
-- LLM: Claude 3.5 Sonnet
-- Metadata: DuckDB
+- Embeddings: OpenAI text-embedding-3-small (1536-dim vectors)
+- Vector Store: Supabase pgvector (12,351 chunks across 7 firms)
+- LLM: Claude Opus 4.7
+- Database: PostgreSQL with pgvector extension
+- Hosting: Railway
 
 ---
 
