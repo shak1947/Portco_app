@@ -344,7 +344,19 @@ Your answer (concise, 2-4 sentences, cite sources):"""
         start_time = time.time()
         logger.info(f"[AGENTIC] Starting multi-firm analysis for: {question}")
 
-        firms = ["Bain", "CD&R", "CVC", "EQT", "Hellman", "Kelso", "TA Associate"]
+        # Dynamically fetch all firms from database (no hardcoded limits)
+        try:
+            response = supabase.table("form_adv_embeddings").select("firm_name").execute()
+            firms = sorted(list(set([row["firm_name"] for row in response.data if row.get("firm_name")])))
+            logger.info(f"[AGENTIC] Found {len(firms)} firms in database: {firms}")
+        except Exception as e:
+            logger.error(f"[AGENTIC] Failed to fetch firms from database: {e}")
+            return {"question": question, "answer": "Error retrieving firm list.", "error": str(e)}
+
+        if not firms:
+            logger.error("[AGENTIC] No firms found in database")
+            return {"question": question, "answer": "No firms found in database.", "chunk_count": 0}
+
         all_chunks = []
         firm_results = {}
 
