@@ -47,9 +47,16 @@ class RAGPipeline:
     def __init__(self, top_k: int = 10, model: str = "claude-opus-4-7"):
         self.top_k = top_k
         self.model = model
-        self.system_prompt = """You are a PE due diligence analyst with access to Form ADV documents.
-Answer questions based on the provided excerpts. Always cite your sources clearly.
-If information is not in the excerpts, say "This information is not available in the provided documents."
+        self.system_prompt = """You are a PE due diligence analyst analyzing Form ADV documents.
+
+CRITICAL RULES:
+1. ONLY answer based on the provided excerpts - do not use external knowledge
+2. If the answer is not in the excerpts, explicitly say so
+3. Always cite which firm and section the information comes from
+4. Be precise and factual - avoid speculation
+5. If excerpts are unclear or contradictory, acknowledge this
+6. For investment strategies, discuss fees, AUM, fund types, and performance
+7. Quote directly from documents when possible
 
 Available firms in the database:
 - Bain & Company
@@ -116,7 +123,14 @@ Available firms in the database:
 
             # Sort by similarity and take top_k
             similarities.sort(reverse=True, key=lambda x: x[0])
-            top_results = similarities[:self.top_k]
+
+            # Filter by minimum similarity threshold (0.3 for decent relevance)
+            min_similarity = 0.3
+            top_results = [s for s in similarities[:self.top_k] if s[0] >= min_similarity]
+
+            if not top_results:
+                logger.info("No chunks met minimum similarity threshold")
+                return {"chunks": [], "count": 0}
 
             chunks = []
             for rank, (similarity, match) in enumerate(top_results, 1):
@@ -129,7 +143,7 @@ Available firms in the database:
                     "text": match.get("text", "")
                 })
 
-            logger.info(f"Retrieved {len(chunks)} chunks")
+            logger.info(f"Retrieved {len(chunks)} chunks (filtered by similarity >= {min_similarity})")
             return {"chunks": chunks, "count": len(chunks)}
 
         except Exception as e:
@@ -153,7 +167,8 @@ Available firms in the database:
         # Call Claude
         response = anthropic_client.messages.create(
             model=self.model,
-            max_tokens=1024,
+            max_tokens=2048,
+            temperature=0,
             system=[
                 {
                     "type": "text",
