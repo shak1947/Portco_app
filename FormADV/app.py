@@ -44,7 +44,7 @@ else:
 class RAGPipeline:
     """RAG pipeline: retrieve embeddings from Supabase + synthesize with Claude"""
 
-    def __init__(self, top_k: int = 5, model: str = "claude-sonnet-4-6"):
+    def __init__(self, top_k: int = 10, model: str = "claude-opus-4-7"):
         self.top_k = top_k
         self.model = model
         self.system_prompt = """You are a PE due diligence analyst with access to Form ADV documents.
