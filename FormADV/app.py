@@ -339,6 +339,67 @@ Your answer (concise, 2-4 sentences, cite sources):"""
             "total_time_ms": total_time
         }
 
+    def query_agentic(self, question: str) -> dict:
+        """Multi-step RAG: Claude decides what queries to run, makes multiple retrievals, synthesizes."""
+        start_time = time.time()
+        logger.info(f"Agentic query: {question}")
+
+        # List of firms for Claude to query
+        firms = ["Bain", "CD&R", "CVC", "EQT", "Hellman", "Kelso", "TA Associate"]
+
+        # Claude decides what sub-queries to run
+        planning_response = anthropic_client.messages.create(
+            model=self.model,
+            max_tokens=300,
+            messages=[{
+                "role": "user",
+                "content": f"""Question: {question}
+
+Available firms: {', '.join(firms)}
+
+Based on the question, what specific queries should be run for each firm to answer it comprehensively?
+Format: One query per line, like:
+- Bain: [query about Bain]
+- CD&R: [query about CD&R]
+(only include firms that are relevant)"""
+            }]
+        )
+
+        plan = planning_response.content[0].text
+        logger.info(f"Claude's plan:\n{plan}")
+
+        # Execute queries for each firm mentioned in the plan
+        all_chunks = []
+        for firm in firms:
+            if firm.lower() in plan.lower():
+                # Create a firm-specific query
+                sub_query = f"{question} {firm}"
+                logger.info(f"Sub-query: {sub_query}")
+                result = self.retrieve(sub_query)
+                all_chunks.extend(result.get("chunks", []))
+
+        # If no chunks found, fall back to single query
+        if not all_chunks:
+            return self.query(question)
+
+        # Synthesize all results
+        logger.info(f"Synthesizing {len(all_chunks)} chunks from multi-firm queries")
+        answer, metrics = self.synthesize(question, all_chunks[:20])  # Limit to 20 chunks
+
+        total_time = round((time.time() - start_time) * 1000)
+
+        return {
+            "question": question,
+            "answer": answer,
+            "sources": [
+                {"firm": c["firm_name"], "page": c["page_number"], "similarity": c["similarity"]}
+                for c in all_chunks[:10]
+            ],
+            "chunk_count": len(all_chunks),
+            "total_time_ms": total_time,
+            "reasoning": plan
+        }
+
 
 # Initialize pipeline
 pipeline = RAGPipeline()
@@ -352,7 +413,7 @@ def index():
 
 @app.route("/api/query", methods=["POST"])
 def api_query():
-    """RAG query endpoint"""
+    """RAG query endpoint - uses agentic multi-step for complex questions"""
     try:
         data = request.json
         question = data.get("question", "").strip()
@@ -360,7 +421,16 @@ def api_query():
         if not question:
             return jsonify({"error": "Question cannot be empty"}), 400
 
-        result = pipeline.query(question)
+        # Detect if question needs multi-step reasoning
+        complex_keywords = ["which firm", "most", "least", "compare", "all firms", "ranking", "highest", "lowest"]
+        is_complex = any(keyword in question.lower() for keyword in complex_keywords)
+
+        if is_complex:
+            logger.info("Complex query detected - using agentic RAG")
+            result = pipeline.query_agentic(question)
+        else:
+            result = pipeline.query(question)
+
         return jsonify(result)
 
     except Exception as e:
