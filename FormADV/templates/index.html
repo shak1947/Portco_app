@@ -532,9 +532,11 @@
                 // Display answer
                 document.getElementById("answer-text").textContent = result.answer;
 
-                // Display sources
+                // Display sources - with error handling
                 const sourcesList = document.getElementById("sources-list");
-                sourcesList.innerHTML = result.sources.map((source, idx) => `
+
+                if (result.sources && Array.isArray(result.sources) && result.sources.length > 0) {
+                    sourcesList.innerHTML = result.sources.map((source, idx) => `
                     <div class="source-item">
                         <div class="firm-name">[${idx + 1}] ${source.firm}</div>
                         <div class="metadata">
@@ -542,6 +544,11 @@
                         </div>
                     </div>
                 `).join("");
+                } else if (result.firms_analyzed && Array.isArray(result.firms_analyzed)) {
+                    sourcesList.innerHTML = `<div class="detail" style="padding: 10px;">Firms analyzed: ${result.firms_analyzed.join(", ")}</div>`;
+                } else {
+                    sourcesList.innerHTML = `<div class="detail" style="padding: 10px;">No sources available</div>`;
+                }
 
                 // Update stats
                 const elapsed = Date.now() - startTime;

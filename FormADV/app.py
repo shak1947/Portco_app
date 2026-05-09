@@ -75,11 +75,12 @@ FORMATTING:
 
     def retrieve(self, question: str) -> dict:
         """Vector search in Supabase for relevant chunks."""
-        logger.info(f"Retrieving chunks for: {question}")
+        print("[RETRIEVE] Starting for: {}".format(question[:50]), flush=True)
         retrieval_start = time.time()
         pipeline_steps = []
 
         if not supabase:
+            print("[RETRIEVE] ERROR: Supabase not connected!", flush=True)
             return {"chunks": [], "count": 0, "error": "Supabase not connected"}
 
         try:
@@ -136,6 +137,7 @@ FORMATTING:
 
             try:
                 logger.info(f"Calling RPC: limit={limit}, firm_filter={firm_filter}")
+                logger.info(f"DEBUG: RPC call - embedding shape={len(query_embedding)}")
                 response = supabase.rpc(
                     "match_documents",
                     {
@@ -146,6 +148,7 @@ FORMATTING:
                     }
                 ).execute()
                 matches = response.data if response.data else []
+                logger.info(f"DEBUG: RPC response.data type: {type(response.data)}, length: {len(matches)}")
                 logger.info(f"RPC returned {len(matches)} results")
                 if matches:
                     logger.info(f"  Top match: {matches[0].get('firm_name')} (similarity: {matches[0].get('similarity')})")
@@ -345,13 +348,17 @@ Your answer (concise, 2-4 sentences, cite sources):"""
         pipeline_steps = []
         logger.info(f"[COORDINATOR] Received: {question}")
 
-        # Get all firms from database
+        # Get all firms from database (with limit to avoid fetching all rows)
         try:
-            response = supabase.table("form_adv_embeddings").select("firm_name").execute()
+            logger.info(f"[COORDINATOR] Fetching firms from database...")
+            response = supabase.table("form_adv_embeddings").select("firm_name", count="exact").limit(1000).execute()
+            # Get unique firm names from the limited set
             firms = sorted(list(set([row["firm_name"] for row in response.data if row.get("firm_name")])))
-            logger.info(f"[COORDINATOR] Found {len(firms)} firms: {firms}")
+            logger.info(f"[COORDINATOR] Found {len(firms)} unique firms from {len(response.data)} rows: {firms}")
         except Exception as e:
             logger.error(f"[COORDINATOR] Failed to fetch firms: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {"question": question, "answer": "Error retrieving firms.", "error": str(e)}
 
         if not firms:
@@ -523,12 +530,20 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/debug", methods=["POST"])
+def api_debug():
+    """Debug endpoint to test POST requests"""
+    print("[DEBUG] Endpoint hit!", flush=True)
+    return jsonify({"status": "ok"})
+
 @app.route("/api/query", methods=["POST"])
 def api_query():
     """RAG query endpoint - uses agentic multi-step for complex questions"""
     try:
+        print("[API] === QUERY ENDPOINT HIT ===", flush=True)
         data = request.json
         question = data.get("question", "").strip()
+        print("[API] Question: {}".format(question), flush=True)
 
         if not question:
             return jsonify({"error": "Question cannot be empty"}), 400
@@ -536,17 +551,22 @@ def api_query():
         # Detect if question needs multi-step reasoning
         complex_keywords = ["which firm", "most", "least", "compare", "all firms", "ranking", "highest", "lowest"]
         is_complex = any(keyword in question.lower() for keyword in complex_keywords)
+        print("[API] Is complex: {}".format(is_complex), flush=True)
 
         if is_complex:
-            logger.info("Complex query detected - using agentic RAG")
+            logger.info("Complex query detected - calling query_agentic()...")
             try:
+                logger.info("Starting agentic query...")
                 result = pipeline.query_agentic(question)
+                logger.info("Agentic query completed")
             except Exception as e:
                 logger.error(f"Agentic query failed: {e}", exc_info=True)
                 logger.info("Falling back to standard query")
                 result = pipeline.query(question)
         else:
+            logger.info("Standard query - calling pipeline.query()...")
             result = pipeline.query(question)
+            logger.info("Query completed")
 
         # Ensure result has required fields
         if not result:
