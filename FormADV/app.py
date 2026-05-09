@@ -88,9 +88,12 @@ Available firms in the database:
             ]
 
             question_lower = question.lower()
+            # Remove ampersands and normalize spacing for matching
+            question_normalized = question_lower.replace("&", "").replace(" and ", "")
+
             firm_mapping = {
                 "bain": "Bain",
-                "cd&r": "CD&R",
+                "cdr": "CD&R",
                 "clayton": "CD&R",
                 "cvc": "CVC",
                 "eqt": "EQT",
@@ -100,9 +103,9 @@ Available firms in the database:
             }
 
             for keyword, firm_name in firm_mapping.items():
-                if keyword in question_lower:
+                if keyword in question_normalized:
                     firm_filter = firm_name
-                    logger.info(f"Detected firm filter: {firm_filter}")
+                    logger.info(f"Detected firm filter: {firm_filter} from keyword '{keyword}'")
                     break
 
             # Embed the question
