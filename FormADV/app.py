@@ -62,10 +62,9 @@ Available firms in the database:
 
     def retrieve(self, question: str) -> dict:
         """Vector search in Supabase for relevant chunks."""
-        logger.info(f"[RETRIEVE] Starting retrieval for: {question}")
+        logger.info(f"Retrieving chunks for: {question}")
 
         if not supabase:
-            print("[RETRIEVE] Supabase not connected!", flush=True)
             return {"chunks": [], "count": 0, "error": "Supabase not connected"}
 
         try:
@@ -77,17 +76,14 @@ Available firms in the database:
             query_embedding = np.array(embedding_response.data[0].embedding, dtype=np.float32)
             logger.info(f"Generated embedding, shape: {query_embedding.shape}")
 
-            # Fetch all embeddings from Supabase (limit for testing)
-            print(f"[RETRIEVE] Fetching embeddings from Supabase table...", flush=True)
+            # Fetch embeddings from Supabase
             response = supabase.table("form_adv_embeddings").select(
                 "id, firm_name, source_file, page_number, text, embedding"
             ).limit(500).execute()
 
-            print(f"[RETRIEVE] Supabase response: {len(response.data) if response.data else 0} rows", flush=True)
             logger.info(f"Fetched {len(response.data)} embeddings from Supabase")
 
             if not response.data:
-                print("[RETRIEVE] ERROR: No embeddings found in Supabase!", flush=True)
                 logger.info("No embeddings found in Supabase")
                 return {"chunks": [], "count": 0}
 
@@ -231,21 +227,12 @@ def api_query():
         if not question:
             return jsonify({"error": "Question cannot be empty"}), 400
 
-        print(f"[DEBUG] Query endpoint called with: {question}", flush=True)
         result = pipeline.query(question)
-        print(f"[DEBUG] Query result: {len(result.get('sources', []))} sources", flush=True)
         return jsonify(result)
 
     except Exception as e:
-        print(f"[ERROR] {e}", flush=True)
         logger.error(f"Error in query: {e}")
         return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/debug", methods=["GET"])
-def debug():
-    """Debug endpoint"""
-    return jsonify({"debug": "endpoint works", "supabase": supabase is not None})
 
 
 @app.route("/api/health", methods=["GET"])
