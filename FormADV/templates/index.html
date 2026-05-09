@@ -207,6 +207,71 @@
             display: block;
         }
 
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab-btn {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: #666;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .tab-btn.active {
+            border-bottom-color: #667eea;
+            color: #667eea;
+        }
+
+        .tab-btn:hover {
+            color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .technical-log {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin-bottom: 12px;
+            padding: 8px;
+            border-left: 3px solid #667eea;
+            padding-left: 12px;
+        }
+
+        .log-entry .step {
+            color: #ffff00;
+            font-weight: bold;
+        }
+
+        .log-entry .detail {
+            color: #00ff00;
+            margin-top: 4px;
+        }
+
         .stats {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -319,23 +384,37 @@
                 <div class="error" id="error"></div>
 
                 <div class="result-section" id="result-section">
-                    <div class="answer-box">
-                        <h3 style="margin-bottom: 10px; color: #666; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Answer</h3>
-                        <div id="answer-text"></div>
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchTab('answer')">Answer & Sources</button>
+                        <button class="tab-btn" onclick="switchTab('technical')">Technical Details</button>
                     </div>
 
-                    <div class="sources-box">
-                        <h3>Sources</h3>
-                        <div id="sources-list"></div>
-                        <div class="stats">
-                            <div class="stat">
-                                <span class="stat-label">Chunks Used:</span>
-                                <span id="chunk-used">0</span>
+                    <div id="answer-tab" class="tab-content active">
+                        <div class="answer-box">
+                            <h3 style="margin-bottom: 10px; color: #666; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Answer</h3>
+                            <div id="answer-text"></div>
+                        </div>
+
+                        <div class="sources-box">
+                            <h3>Sources</h3>
+                            <div id="sources-list"></div>
+                            <div class="stats">
+                                <div class="stat">
+                                    <span class="stat-label">Chunks Used:</span>
+                                    <span id="chunk-used">0</span>
+                                </div>
+                                <div class="stat">
+                                    <span class="stat-label">Processing:</span>
+                                    <span id="processing-time">0ms</span>
+                                </div>
                             </div>
-                            <div class="stat">
-                                <span class="stat-label">Processing:</span>
-                                <span id="processing-time">0ms</span>
-                            </div>
+                        </div>
+                    </div>
+
+                    <div id="technical-tab" class="tab-content">
+                        <div class="technical-log">
+                            <h3>RAG Pipeline Steps</h3>
+                            <div id="technical-details"></div>
                         </div>
                     </div>
                 </div>
@@ -368,6 +447,20 @@
 
     <script>
         let startTime = 0;
+
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+        }
 
         async function loadChunkCount() {
             try {
@@ -455,6 +548,9 @@
                 document.getElementById("chunk-used").textContent = result.chunk_count;
                 document.getElementById("processing-time").textContent = `${elapsed}ms`;
 
+                // Display technical details
+                displayTechnicalDetails(result, question, elapsed);
+
                 resultEl.classList.add("active");
 
             } catch (error) {
@@ -466,6 +562,64 @@
                 loadingEl.classList.remove("active");
                 submitBtn.disabled = false;
             }
+        }
+
+        function displayTechnicalDetails(result, question, elapsed) {
+            const technicalEl = document.getElementById("technical-details");
+
+            let html = `
+                <div class="log-entry">
+                    <div class="step">[1] Query Expansion & Analysis</div>
+                    <div class="detail">Input: "${question}"</div>
+                </div>
+
+                <div class="log-entry">
+                    <div class="step">[2] OpenAI Embedding</div>
+                    <div class="detail">Model: text-embedding-3-small</div>
+                    <div class="detail">Dimensions: 1536</div>
+                </div>
+
+                <div class="log-entry">
+                    <div class="step">[3] Supabase Filtering & Retrieval</div>
+                    <div class="detail">Strategy: Firm-level filter detection</div>
+                    <div class="detail">Database: Supabase pgvector</div>
+                    <div class="detail">Similarity Algorithm: Cosine similarity</div>
+                    <div class="detail">Chunks Fetched: 1000 (filtered by firm if detected)</div>
+                    <div class="detail">Similarity Threshold: 0.25</div>
+                    <div class="detail">Deduplication: Max 2 chunks per firm</div>
+                </div>
+
+                <div class="log-entry">
+                    <div class="step">[4] Chunk Selection</div>
+                    <div class="detail">Chunks Retrieved: ${result.chunk_count}</div>
+            `;
+
+            if (result.sources && result.sources.length > 0) {
+                html += `<div class="detail">Sources:`;
+                result.sources.forEach((source, idx) => {
+                    html += `<br>&nbsp;&nbsp;${idx + 1}. ${source.firm} (Page ${source.page}, Similarity: ${(source.similarity * 100).toFixed(0)}%)`;
+                });
+                html += `</div>`;
+            }
+
+            html += `
+                </div>
+
+                <div class="log-entry">
+                    <div class="step">[5] Claude Synthesis</div>
+                    <div class="detail">Model: Claude Opus 4.7</div>
+                    <div class="detail">Max Tokens: 2048</div>
+                    <div class="detail">Task: Generate answer with citations</div>
+                </div>
+
+                <div class="log-entry">
+                    <div class="step">[6] Complete</div>
+                    <div class="detail">Total Processing Time: ${elapsed}ms</div>
+                    <div class="detail">Status: ✓ Success</div>
+                </div>
+            `;
+
+            technicalEl.innerHTML = html;
         }
 
         // Load data on page load
