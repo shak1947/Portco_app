@@ -539,15 +539,24 @@ def api_query():
 
         if is_complex:
             logger.info("Complex query detected - using agentic RAG")
-            result = pipeline.query_agentic(question)
+            try:
+                result = pipeline.query_agentic(question)
+            except Exception as e:
+                logger.error(f"Agentic query failed: {e}", exc_info=True)
+                logger.info("Falling back to standard query")
+                result = pipeline.query(question)
         else:
             result = pipeline.query(question)
+
+        # Ensure result has required fields
+        if not result:
+            result = {"answer": "No answer generated", "error": "Empty result"}
 
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"Error in query: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error in query: {e}", exc_info=True)
+        return jsonify({"error": str(e), "answer": "Error processing query"}), 500
 
 
 @app.route("/api/health", methods=["GET"])
