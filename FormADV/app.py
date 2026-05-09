@@ -168,7 +168,6 @@ Available firms in the database:
         response = anthropic_client.messages.create(
             model=self.model,
             max_tokens=2048,
-            temperature=0,
             system=[
                 {
                     "type": "text",
