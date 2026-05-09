@@ -342,6 +342,7 @@ Your answer (concise, 2-4 sentences, cite sources):"""
     def query_agentic(self, question: str) -> dict:
         """Multi-agent coordinator: Main agent plans, sub-agents answer per-firm questions, coordinator synthesizes."""
         start_time = time.time()
+        pipeline_steps = []
         logger.info(f"[COORDINATOR] Received: {question}")
 
         # Get all firms from database
@@ -358,6 +359,8 @@ Your answer (concise, 2-4 sentences, cite sources):"""
 
         # STEP 1: Coordinator Agent - Plan what to ask each firm
         logger.info("[COORDINATOR] Planning phase...")
+        step1_start = time.time()
+
         planning_response = anthropic_client.messages.create(
             model=self.model,
             max_tokens=400,
@@ -381,14 +384,25 @@ Generate for all {len(firms)} firms:"""
         )
 
         plan = planning_response.content[0].text
+        step1_time = round((time.time() - step1_start) * 1000)
+        pipeline_steps.append({
+            "step": 1,
+            "name": "Coordinator Planning",
+            "duration_ms": step1_time,
+            "details": f"Coordinator planned sub-queries for {len(firms)} firms",
+            "plan": plan[:500]  # First 500 chars of plan
+        })
         logger.info(f"[COORDINATOR] Plan:\n{plan}")
 
         # STEP 2: Sub-Agents - Each firm gets a specific query
         logger.info("[COORDINATOR] Executing sub-queries for each firm...")
+        step2_start = time.time()
         firm_answers = {}
+        sub_agent_details = []
 
         for firm in firms:
             logger.info(f"[SUB-AGENT] Querying {firm}...")
+            sub_agent_start = time.time()
 
             # Create a firm-specific question based on the plan
             sub_question = f"{question} specifically for {firm}"
@@ -417,13 +431,37 @@ Provide a concise, specific answer about {firm} (1-2 sentences with numbers if a
 
                 answer = sub_response.content[0].text
                 firm_answers[firm] = answer
+                sub_time = round((time.time() - sub_agent_start) * 1000)
+                sub_agent_details.append({
+                    "firm": firm,
+                    "chunks_found": len(chunks),
+                    "duration_ms": sub_time,
+                    "answer": answer[:150]
+                })
                 logger.info(f"[SUB-AGENT] {firm} answer: {answer[:100]}...")
             else:
                 firm_answers[firm] = f"No data found for {firm}"
+                sub_time = round((time.time() - sub_agent_start) * 1000)
+                sub_agent_details.append({
+                    "firm": firm,
+                    "chunks_found": 0,
+                    "duration_ms": sub_time,
+                    "answer": "No data"
+                })
                 logger.info(f"[SUB-AGENT] {firm}: No data")
+
+        step2_time = round((time.time() - step2_start) * 1000)
+        pipeline_steps.append({
+            "step": 2,
+            "name": "Sub-Agents Execution",
+            "duration_ms": step2_time,
+            "details": f"Executed sub-agents for {len(firms)} firms, got {len([a for a in firm_answers.values() if 'No data' not in a])} responses",
+            "sub_agents": sub_agent_details
+        })
 
         # STEP 3: Coordinator Agent - Synthesize all firm answers
         logger.info("[COORDINATOR] Synthesis phase - comparing all firm answers...")
+        step3_start = time.time()
 
         # Build comparison context from all firm answers
         all_answers = "\n".join([f"{firm}: {answer}" for firm, answer in firm_answers.items()])
@@ -451,7 +489,15 @@ Final answer:"""
         )
 
         final_answer = synthesis_response.content[0].text
+        step3_time = round((time.time() - step3_start) * 1000)
         total_time = round((time.time() - start_time) * 1000)
+
+        pipeline_steps.append({
+            "step": 3,
+            "name": "Coordinator Synthesis",
+            "duration_ms": step3_time,
+            "details": f"Coordinator synthesized responses from {len(firm_answers)} firms into final answer"
+        })
 
         logger.info(f"[COORDINATOR] Complete in {total_time}ms")
 
@@ -462,7 +508,8 @@ Final answer:"""
             "total_time_ms": total_time,
             "firms_analyzed": firms,
             "sub_agent_responses": firm_answers,
-            "coordinator_plan": plan
+            "coordinator_plan": plan,
+            "pipeline_details": pipeline_steps
         }
 
 
