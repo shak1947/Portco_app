@@ -569,55 +569,70 @@
 
             let html = `
                 <div class="log-entry">
-                    <div class="step">[1] Query Expansion & Analysis</div>
-                    <div class="detail">Input: "${question}"</div>
+                    <div class="step">Query Input</div>
+                    <div class="detail">${question}</div>
                 </div>
-
-                <div class="log-entry">
-                    <div class="step">[2] OpenAI Embedding</div>
-                    <div class="detail">Model: text-embedding-3-small</div>
-                    <div class="detail">Dimensions: 1536</div>
-                </div>
-
-                <div class="log-entry">
-                    <div class="step">[3] Supabase Filtering & Retrieval</div>
-                    <div class="detail">Strategy: Firm-level filter detection</div>
-                    <div class="detail">Database: Supabase pgvector</div>
-                    <div class="detail">Similarity Algorithm: Cosine similarity</div>
-                    <div class="detail">Chunks Fetched: 1000 (filtered by firm if detected)</div>
-                    <div class="detail">Similarity Threshold: 0.25</div>
-                    <div class="detail">Deduplication: Max 2 chunks per firm</div>
-                </div>
-
-                <div class="log-entry">
-                    <div class="step">[4] Chunk Selection</div>
-                    <div class="detail">Chunks Retrieved: ${result.chunk_count}</div>
             `;
 
+            // Display each pipeline step with actual metrics
+            if (result.pipeline_details && result.pipeline_details.length > 0) {
+                result.pipeline_details.forEach(step => {
+                    html += `
+                        <div class="log-entry">
+                            <div class="step">[${step.step}] ${step.name}</div>
+                            <div class="detail">${step.details}</div>
+                            <div class="detail" style="color: #ffff00; margin-top: 4px;">Duration: ${step.duration_ms}ms</div>
+                        </div>
+                    `;
+                });
+            } else {
+                // Fallback if pipeline_details not available
+                html += `
+                    <div class="log-entry">
+                        <div class="step">[1] Query Analysis</div>
+                        <div class="detail">Analyzing question for firm filters...</div>
+                    </div>
+
+                    <div class="log-entry">
+                        <div class="step">[2] Embedding Generation</div>
+                        <div class="detail">Model: text-embedding-3-small | Dimensions: 1536</div>
+                    </div>
+
+                    <div class="log-entry">
+                        <div class="step">[3] Vector Similarity Search</div>
+                        <div class="detail">Database: Supabase pgvector | Algorithm: Cosine similarity</div>
+                        <div class="detail">Results fetched: ${result.chunk_count}</div>
+                    </div>
+
+                    <div class="log-entry">
+                        <div class="step">[4] Result Processing</div>
+                        <div class="detail">Chunks selected: ${result.chunk_count}</div>
+                        <div class="detail">Firm diversity: Max 2 per firm</div>
+                    </div>
+
+                    <div class="log-entry">
+                        <div class="step">[5] Answer Synthesis</div>
+                        <div class="detail">Model: Claude Opus 4.7 | Max tokens: 2048</div>
+                    </div>
+
+                    <div class="log-entry">
+                        <div class="step">[6] Complete</div>
+                        <div class="detail">Total time: ${elapsed}ms</div>
+                    </div>
+                `;
+            }
+
+            // Add sources summary
             if (result.sources && result.sources.length > 0) {
-                html += `<div class="detail">Sources:`;
+                html += `
+                    <div class="log-entry" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #444;">
+                        <div class="step">Sources Used</div>
+                `;
                 result.sources.forEach((source, idx) => {
-                    html += `<br>&nbsp;&nbsp;${idx + 1}. ${source.firm} (Page ${source.page}, Similarity: ${(source.similarity * 100).toFixed(0)}%)`;
+                    html += `<div class="detail">${idx + 1}. ${source.firm} (Page ${source.page}) - Similarity: ${(source.similarity * 100).toFixed(0)}%</div>`;
                 });
                 html += `</div>`;
             }
-
-            html += `
-                </div>
-
-                <div class="log-entry">
-                    <div class="step">[5] Claude Synthesis</div>
-                    <div class="detail">Model: Claude Opus 4.7</div>
-                    <div class="detail">Max Tokens: 2048</div>
-                    <div class="detail">Task: Generate answer with citations</div>
-                </div>
-
-                <div class="log-entry">
-                    <div class="step">[6] Complete</div>
-                    <div class="detail">Total Processing Time: ${elapsed}ms</div>
-                    <div class="detail">Status: ✓ Success</div>
-                </div>
-            `;
 
             technicalEl.innerHTML = html;
         }

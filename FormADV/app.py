@@ -13,6 +13,7 @@ from anthropic import Anthropic
 from supabase import create_client, Client
 import logging
 import numpy as np
+import time
 
 load_dotenv()
 
@@ -70,27 +71,16 @@ Available firms in the database:
     def retrieve(self, question: str) -> dict:
         """Vector search in Supabase for relevant chunks."""
         logger.info(f"Retrieving chunks for: {question}")
+        retrieval_start = time.time()
+        pipeline_steps = []
 
         if not supabase:
             return {"chunks": [], "count": 0, "error": "Supabase not connected"}
 
         try:
-            # Extract firm name from question if mentioned
+            # Step 1: Analyze question and detect firm filter
+            step1_start = time.time()
             firm_filter = None
-            available_firms = [
-                "Bain & Company", "Bain",
-                "CD&R", "Clayton Dubilier & Rice",
-                "CVC Capital Partners", "CVC",
-                "EQT Partners", "EQT",
-                "Hellman & Friedman", "Hellman",
-                "Kelso & Company", "Kelso",
-                "TA Associates", "TA Associate"
-            ]
-
-            question_lower = question.lower()
-            # Remove ampersands and normalize spacing for matching
-            question_normalized = question_lower.replace("&", "").replace(" and ", "")
-
             firm_mapping = {
                 "bain": "Bain",
                 "cdr": "CD&R",
@@ -102,26 +92,44 @@ Available firms in the database:
                 "ta": "TA Associate"
             }
 
+            question_lower = question.lower()
+            question_normalized = question_lower.replace("&", "").replace(" and ", "")
+
             for keyword, firm_name in firm_mapping.items():
                 if keyword in question_normalized:
                     firm_filter = firm_name
-                    logger.info(f"Detected firm filter: {firm_filter} from keyword '{keyword}'")
+                    logger.info(f"Detected firm filter: {firm_filter}")
                     break
 
-            # Embed the question
+            pipeline_steps.append({
+                "step": 1,
+                "name": "Query Analysis",
+                "duration_ms": round((time.time() - step1_start) * 1000),
+                "details": f"Firm filter detected: {firm_filter if firm_filter else 'None (searching all firms)'}"
+            })
+
+            # Step 2: Generate embedding
+            step2_start = time.time()
             embedding_response = openai_client.embeddings.create(
                 model="text-embedding-3-small",
                 input=question
             )
             query_embedding = embedding_response.data[0].embedding
-            logger.info(f"Generated embedding for query")
+            embedding_time = round((time.time() - step2_start) * 1000)
 
-            # Use Supabase's pgvector similarity search
-            # Fetch only what we need with vector similarity
-            limit = min(self.top_k * 3, 30)  # Get more than top_k for firm diversity
+            pipeline_steps.append({
+                "step": 2,
+                "name": "Embedding Generation",
+                "duration_ms": embedding_time,
+                "details": f"Model: text-embedding-3-small | Dimensions: 1536"
+            })
+            logger.info(f"Embedding generated in {embedding_time}ms")
+
+            # Step 3: Vector similarity search
+            step3_start = time.time()
+            limit = min(self.top_k * 3, 30)
 
             try:
-                # Use RPC for vector similarity search
                 response = supabase.rpc(
                     "match_documents",
                     {
@@ -130,13 +138,10 @@ Available firms in the database:
                         "match_threshold": 0.2
                     }
                 ).execute()
-
                 matches = response.data if response.data else []
-                logger.info(f"Vector search returned {len(matches)} results")
-
+                search_method = "pgvector RPC"
             except Exception as e:
-                logger.warning(f"Vector search RPC failed, falling back to direct query: {e}")
-                # Fallback: fetch documents without vector search
+                logger.warning(f"Vector search RPC failed, falling back: {e}")
                 query = supabase.table("form_adv_embeddings").select(
                     "id, firm_name, source_file, page_number, text"
                 )
@@ -144,12 +149,29 @@ Available firms in the database:
                     query = query.eq("firm_name", firm_filter)
                 response = query.limit(limit).execute()
                 matches = response.data if response.data else []
+                search_method = "direct query (fallback)"
+
+            retrieval_time = round((time.time() - step3_start) * 1000)
+            pipeline_steps.append({
+                "step": 3,
+                "name": "Vector Similarity Search",
+                "duration_ms": retrieval_time,
+                "details": f"Method: {search_method} | Limit: {limit} | Results: {len(matches)}"
+            })
+            logger.info(f"Retrieved {len(matches)} matches in {retrieval_time}ms")
 
             if not matches:
                 logger.info("No relevant chunks found")
-                return {"chunks": [], "count": 0}
+                pipeline_steps.append({
+                    "step": 4,
+                    "name": "Result Processing",
+                    "duration_ms": 0,
+                    "details": "No chunks met threshold - returning empty result"
+                })
+                return {"chunks": [], "count": 0, "pipeline": pipeline_steps}
 
-            # Format results: limit to top_k chunks with firm diversity
+            # Step 4: Format results with firm diversity
+            step4_start = time.time()
             chunks = []
             firm_counts = {}
             max_per_firm = 2
@@ -158,7 +180,6 @@ Available firms in the database:
                 firm = match.get("firm_name", "Unknown")
                 firm_counts[firm] = firm_counts.get(firm, 0) + 1
 
-                # Skip if we already have enough from this firm
                 if firm_counts[firm] > max_per_firm:
                     continue
 
@@ -171,12 +192,21 @@ Available firms in the database:
                     "text": match.get("text", "")
                 })
 
-                # Stop once we have enough
                 if len(chunks) >= self.top_k:
                     break
 
-            logger.info(f"Retrieved {len(chunks)} chunks from top {limit} matches")
-            return {"chunks": chunks, "count": len(chunks)}
+            processing_time = round((time.time() - step4_start) * 1000)
+            firm_breakdown = {firm: count for firm, count in firm_counts.items() if count > 0}
+
+            pipeline_steps.append({
+                "step": 4,
+                "name": "Result Processing",
+                "duration_ms": processing_time,
+                "details": f"Chunks selected: {len(chunks)} | Firm diversity applied: {firm_breakdown}"
+            })
+
+            logger.info(f"Retrieved {len(chunks)} chunks with firm diversity in {processing_time}ms")
+            return {"chunks": chunks, "count": len(chunks), "pipeline": pipeline_steps}
 
         except Exception as e:
             logger.error(f"Retrieval error: {e}")
@@ -184,9 +214,10 @@ Available firms in the database:
             logger.error(traceback.format_exc())
             return {"chunks": [], "count": 0, "error": str(e)}
 
-    def synthesize(self, question: str, chunks: list) -> str:
-        """Use Claude to synthesize answer from chunks."""
+    def synthesize(self, question: str, chunks: list) -> tuple:
+        """Use Claude to synthesize answer from chunks. Returns (answer, metrics)."""
         logger.info("Synthesizing answer with Claude")
+        synthesis_start = time.time()
 
         # Build context from chunks
         context_parts = []
@@ -224,18 +255,58 @@ Answer based on the excerpts above and cite your sources."""
         )
 
         answer = response.content[0].text
-        logger.info("Answer synthesized")
-        return answer
+        synthesis_time = round((time.time() - synthesis_start) * 1000)
+        logger.info(f"Answer synthesized in {synthesis_time}ms")
+
+        metrics = {
+            "model": self.model,
+            "duration_ms": synthesis_time,
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+            "cache_read_tokens": getattr(response.usage, 'cache_read_input_tokens', 0),
+            "cache_creation_tokens": getattr(response.usage, 'cache_creation_input_tokens', 0)
+        }
+
+        return answer, metrics
 
     def query(self, question: str) -> dict:
-        """Complete RAG pipeline: retrieve -> synthesize."""
+        """Complete RAG pipeline: retrieve -> synthesize with detailed metrics."""
+        pipeline_start = time.time()
+        pipeline_steps = []
+
         retrieval = self.retrieve(question)
         chunks = retrieval["chunks"]
+        retrieval_pipeline = retrieval.get("pipeline", [])
+        pipeline_steps.extend(retrieval_pipeline)
 
         if not chunks:
             answer = "No relevant information found in the documents."
+            synthesis_metrics = {
+                "model": self.model,
+                "duration_ms": 0,
+                "input_tokens": 0,
+                "output_tokens": 0
+            }
         else:
-            answer = self.synthesize(question, chunks)
+            answer, synthesis_metrics = self.synthesize(question, chunks)
+
+        total_time = round((time.time() - pipeline_start) * 1000)
+
+        # Add synthesis step
+        pipeline_steps.append({
+            "step": 5,
+            "name": "Answer Synthesis",
+            "duration_ms": synthesis_metrics.get("duration_ms", 0),
+            "details": f"Model: {synthesis_metrics.get('model')} | Input tokens: {synthesis_metrics.get('input_tokens', 0)} | Output tokens: {synthesis_metrics.get('output_tokens', 0)}"
+        })
+
+        # Add completion step
+        pipeline_steps.append({
+            "step": 6,
+            "name": "Pipeline Complete",
+            "duration_ms": total_time,
+            "details": f"Total end-to-end time: {total_time}ms"
+        })
 
         return {
             "question": question,
@@ -249,7 +320,9 @@ Answer based on the excerpts above and cite your sources."""
                 }
                 for c in chunks
             ],
-            "chunk_count": len(chunks)
+            "chunk_count": len(chunks),
+            "pipeline_details": pipeline_steps,
+            "total_time_ms": total_time
         }
 
 
