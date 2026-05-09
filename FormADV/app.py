@@ -135,26 +135,62 @@ FORMATTING:
             limit = min(self.top_k * 3, 30)
 
             try:
+                # Try RPC vector search first
                 response = supabase.rpc(
                     "match_documents",
                     {
                         "query_embedding": query_embedding,
                         "match_count": limit,
-                        "match_threshold": 0.2
+                        "match_threshold": 0.1
                     }
                 ).execute()
                 matches = response.data if response.data else []
-                search_method = "pgvector RPC"
+
+                # If RPC returned no results, fall back to direct query
+                if not matches:
+                    logger.info("RPC returned 0 results, falling back to direct query")
+                    query = supabase.table("form_adv_embeddings").select(
+                        "id, firm_name, source_file, page_number, text"
+                    )
+                    if firm_filter:
+                        query = query.eq("firm_name", firm_filter)
+                    response = query.limit(limit).execute()
+                    matches = response.data if response.data else []
+                    search_method = "direct query with local similarity"
+                else:
+                    search_method = "pgvector RPC"
+
             except Exception as e:
-                logger.warning(f"Vector search RPC failed, falling back: {e}")
+                logger.warning(f"Vector search RPC failed: {e}, falling back to direct query")
                 query = supabase.table("form_adv_embeddings").select(
-                    "id, firm_name, source_file, page_number, text"
+                    "id, firm_name, source_file, page_number, text, embedding"
                 )
                 if firm_filter:
                     query = query.eq("firm_name", firm_filter)
-                response = query.limit(limit).execute()
-                matches = response.data if response.data else []
-                search_method = "direct query (fallback)"
+                response = query.limit(100).execute()
+
+                # Compute similarity locally as fallback
+                matches = []
+                if response.data:
+                    similarities = []
+                    for item in response.data:
+                        try:
+                            embedding = item.get("embedding")
+                            if isinstance(embedding, str):
+                                embedding = json.loads(embedding)
+                            db_embedding = np.array(embedding, dtype=np.float32)
+
+                            similarity = np.dot(query_embedding, db_embedding) / (
+                                np.linalg.norm(query_embedding) * np.linalg.norm(db_embedding)
+                            )
+                            similarities.append((similarity, item))
+                        except:
+                            continue
+
+                    similarities.sort(reverse=True, key=lambda x: x[0])
+                    matches = [s[1] for s in similarities[:limit]]
+
+                search_method = "direct query with local similarity (fallback)"
 
             retrieval_time = round((time.time() - step3_start) * 1000)
             pipeline_steps.append({
