@@ -340,106 +340,129 @@ Your answer (concise, 2-4 sentences, cite sources):"""
         }
 
     def query_agentic(self, question: str) -> dict:
-        """Multi-step RAG: Query each firm separately, then synthesize comparison."""
+        """Multi-agent coordinator: Main agent plans, sub-agents answer per-firm questions, coordinator synthesizes."""
         start_time = time.time()
-        logger.info(f"[AGENTIC] Starting multi-firm analysis for: {question}")
+        logger.info(f"[COORDINATOR] Received: {question}")
 
-        # Dynamically fetch all firms from database (no hardcoded limits)
+        # Get all firms from database
         try:
             response = supabase.table("form_adv_embeddings").select("firm_name").execute()
             firms = sorted(list(set([row["firm_name"] for row in response.data if row.get("firm_name")])))
-            logger.info(f"[AGENTIC] Found {len(firms)} firms in database: {firms}")
+            logger.info(f"[COORDINATOR] Found {len(firms)} firms: {firms}")
         except Exception as e:
-            logger.error(f"[AGENTIC] Failed to fetch firms from database: {e}")
-            return {"question": question, "answer": "Error retrieving firm list.", "error": str(e)}
+            logger.error(f"[COORDINATOR] Failed to fetch firms: {e}")
+            return {"question": question, "answer": "Error retrieving firms.", "error": str(e)}
 
         if not firms:
-            logger.error("[AGENTIC] No firms found in database")
-            return {"question": question, "answer": "No firms found in database.", "chunk_count": 0}
+            return {"question": question, "answer": "No firms in database."}
 
-        all_chunks = []
-        firm_results = {}
+        # STEP 1: Coordinator Agent - Plan what to ask each firm
+        logger.info("[COORDINATOR] Planning phase...")
+        planning_response = anthropic_client.messages.create(
+            model=self.model,
+            max_tokens=400,
+            messages=[{
+                "role": "user",
+                "content": f"""You are a coordinator agent. You received this question:
+"{question}"
 
-        # Step 1: Query each firm for the question
-        logger.info(f"[AGENTIC] Querying {len(firms)} firms...")
+Available firms in our database: {', '.join(firms)}
+
+For each firm, what specific question should we ask to fully answer the user's question?
+Output ONE question per firm, in this format:
+firm_name: [specific question to ask about that firm]
+
+Example:
+Bain: How many employees does Bain have?
+CD&R: What is CD&R's employee count?
+
+Generate for all {len(firms)} firms:"""
+            }]
+        )
+
+        plan = planning_response.content[0].text
+        logger.info(f"[COORDINATOR] Plan:\n{plan}")
+
+        # STEP 2: Sub-Agents - Each firm gets a specific query
+        logger.info("[COORDINATOR] Executing sub-queries for each firm...")
+        firm_answers = {}
+
         for firm in firms:
-            # Create firm-specific query by temporarily removing firm filter
-            retrieval = self.retrieve(question)
+            logger.info(f"[SUB-AGENT] Querying {firm}...")
 
-            # Filter results to this firm only
-            firm_chunks = [c for c in retrieval.get("chunks", []) if c["firm_name"] == firm]
+            # Create a firm-specific question based on the plan
+            sub_question = f"{question} specifically for {firm}"
 
-            if firm_chunks:
-                logger.info(f"[AGENTIC] {firm}: {len(firm_chunks)} chunks found")
-                all_chunks.extend(firm_chunks)
-                firm_results[firm] = firm_chunks
+            # Query with this firm filter
+            retrieval = self.retrieve(sub_question)
+            chunks = retrieval.get("chunks", [])
+
+            if chunks:
+                # Let Claude extract the specific answer for this firm
+                chunk_text = "\n".join([c["text"] for c in chunks[:3]])
+
+                sub_response = anthropic_client.messages.create(
+                    model=self.model,
+                    max_tokens=200,
+                    messages=[{
+                        "role": "user",
+                        "content": f"""Based on this data about {firm}, answer: {question}
+
+Data:
+{chunk_text}
+
+Provide a concise, specific answer about {firm} (1-2 sentences with numbers if available):"""
+                    }]
+                )
+
+                answer = sub_response.content[0].text
+                firm_answers[firm] = answer
+                logger.info(f"[SUB-AGENT] {firm} answer: {answer[:100]}...")
             else:
-                # If no results with semantic search, do direct query for this firm
-                direct_response = supabase.table("form_adv_embeddings").select(
-                    "id, firm_name, source_file, page_number, text"
-                ).eq("firm_name", firm).limit(5).execute()
+                firm_answers[firm] = f"No data found for {firm}"
+                logger.info(f"[SUB-AGENT] {firm}: No data")
 
-                if direct_response.data:
-                    logger.info(f"[AGENTIC] {firm}: {len(direct_response.data)} chunks from direct query")
-                    for chunk in direct_response.data:
-                        all_chunks.append({
-                            "rank": len(all_chunks) + 1,
-                            "firm_name": chunk.get("firm_name"),
-                            "page_number": chunk.get("page_number", 0),
-                            "source_file": chunk.get("source_file", "Unknown"),
-                            "similarity": 0.5,
-                            "text": chunk.get("text", "")
-                        })
-                        firm_results[firm] = all_chunks[-1:]
+        # STEP 3: Coordinator Agent - Synthesize all firm answers
+        logger.info("[COORDINATOR] Synthesis phase - comparing all firm answers...")
 
-        # Step 2: Create comparison context
-        comparison_context = "FIRM COMPARISON DATA:\n"
-        for firm, chunks in firm_results.items():
-            comparison_context += f"\n{firm}:\n"
-            for chunk in chunks[:2]:
-                comparison_context += f"  - {chunk['text'][:100]}...\n"
+        # Build comparison context from all firm answers
+        all_answers = "\n".join([f"{firm}: {answer}" for firm, answer in firm_answers.items()])
 
-        logger.info(f"[AGENTIC] Collected {len(all_chunks)} total chunks from {len(firm_results)} firms")
-
-        # Step 3: Synthesize with comparison prompt
-        if not all_chunks:
-            return {"question": question, "answer": "No data found.", "chunk_count": 0, "total_time_ms": 0}
-
-        # Use Claude to compare across firms
-        synthesis_start = time.time()
-        response = anthropic_client.messages.create(
+        synthesis_response = anthropic_client.messages.create(
             model=self.model,
             max_tokens=512,
             system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
             messages=[{
                 "role": "user",
-                "content": f"""Compare data across all firms to answer this question:
-{question}
+                "content": f"""You are a coordinator agent analyzing responses from sub-agents.
 
-Data from all firms:
-{comparison_context}
+Original question: {question}
 
-Provide a clear comparison analysis. Identify which firm has the most/best metric asked about.
-Be specific with numbers and cite which firms you're comparing."""
+Responses from each firm's sub-agent:
+{all_answers}
+
+Now synthesize these responses to:
+1. Identify which firm has the most/best/highest metric being asked about
+2. Provide specific numbers when available
+3. Explain the comparison clearly
+
+Final answer:"""
             }]
         )
 
-        answer = response.content[0].text
-        synthesis_time = round((time.time() - synthesis_start) * 1000)
+        final_answer = synthesis_response.content[0].text
         total_time = round((time.time() - start_time) * 1000)
 
-        logger.info(f"[AGENTIC] Complete in {total_time}ms")
+        logger.info(f"[COORDINATOR] Complete in {total_time}ms")
 
         return {
             "question": question,
-            "answer": answer,
-            "sources": [
-                {"firm": c["firm_name"], "page": c["page_number"], "similarity": c.get("similarity", 0.5)}
-                for c in all_chunks[:10]
-            ],
-            "chunk_count": len(all_chunks),
+            "answer": final_answer,
+            "chunk_count": len(firm_answers),
             "total_time_ms": total_time,
-            "firms_analyzed": list(firm_results.keys())
+            "firms_analyzed": firms,
+            "sub_agent_responses": firm_answers,
+            "coordinator_plan": plan
         }
 
 
