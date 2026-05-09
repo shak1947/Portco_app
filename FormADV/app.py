@@ -132,11 +132,22 @@ Available firms in the database:
                 logger.info("No chunks met minimum similarity threshold")
                 return {"chunks": [], "count": 0}
 
+            # Deduplicate: limit to 2 chunks per firm to avoid redundancy
             chunks = []
-            for rank, (similarity, match) in enumerate(top_results, 1):
+            firm_counts = {}
+            max_per_firm = 2
+
+            for similarity, match in top_results:
+                firm = match.get("firm_name", "Unknown")
+                firm_counts[firm] = firm_counts.get(firm, 0) + 1
+
+                # Skip if we already have enough from this firm
+                if firm_counts[firm] > max_per_firm:
+                    continue
+
                 chunks.append({
-                    "rank": rank,
-                    "firm_name": match.get("firm_name", "Unknown"),
+                    "rank": len(chunks) + 1,
+                    "firm_name": firm,
                     "page_number": match.get("page_number", 0),
                     "source_file": match.get("source_file", "Unknown"),
                     "similarity": round(float(similarity), 3),
