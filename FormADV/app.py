@@ -135,6 +135,7 @@ FORMATTING:
             limit = min(self.top_k * 3, 30)
 
             try:
+                logger.info(f"Calling RPC with threshold=0.2, limit={limit}")
                 response = supabase.rpc(
                     "match_documents",
                     {
@@ -144,16 +145,22 @@ FORMATTING:
                     }
                 ).execute()
                 matches = response.data if response.data else []
+                logger.info(f"RPC returned {len(matches)} results")
+                if matches:
+                    logger.info(f"  Top match: {matches[0].get('firm_name')} (similarity: {matches[0].get('similarity')})")
                 search_method = "pgvector RPC"
             except Exception as e:
-                logger.warning(f"Vector search RPC failed, falling back: {e}")
+                logger.error(f"RPC error: {e}")
+                logger.warning(f"Falling back to direct query")
                 query = supabase.table("form_adv_embeddings").select(
                     "id, firm_name, source_file, page_number, text"
                 )
                 if firm_filter:
                     query = query.eq("firm_name", firm_filter)
+                    logger.info(f"Filtering to firm: {firm_filter}")
                 response = query.limit(limit).execute()
                 matches = response.data if response.data else []
+                logger.info(f"Fallback returned {len(matches)} results")
                 search_method = "direct query (fallback)"
 
             retrieval_time = round((time.time() - step3_start) * 1000)
