@@ -583,57 +583,67 @@
                 `;
 
                 // Show coordinator plan
-                html += `
-                    <div class="log-entry">
-                        <div class="step">[STEP 1] Coordinator Planning Phase</div>
-                        <div class="detail" style="background: #1e1e1e; padding: 10px; border-radius: 4px; margin-top: 8px; color: #00ff00; font-family: monospace; font-size: 11px; white-space: pre-wrap;">
+                if (result.coordinator_plan) {
+                    html += `
+                        <div class="log-entry">
+                            <div class="step">[STEP 1] Coordinator Planning Phase</div>
+                            <div class="detail" style="background: #1e1e1e; padding: 10px; border-radius: 4px; margin-top: 8px; color: #00ff00; font-family: monospace; font-size: 11px; white-space: pre-wrap;">
 ${result.coordinator_plan.substring(0, 300)}...
+                            </div>
                         </div>
-                    </div>
-                `;
+                    `;
+                }
 
                 // Show sub-agent responses
-                if (result.pipeline_details && result.pipeline_details[1] && result.pipeline_details[1].sub_agents) {
-                    html += `<div class="log-entry"><div class="step">[STEP 2] Sub-Agents Execution</div>`;
-                    result.pipeline_details[1].sub_agents.forEach(subAgent => {
-                        html += `
-                            <div class="detail" style="margin: 8px 0; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-                                <strong>${subAgent.firm}:</strong> ${subAgent.chunks_found} chunks found (${subAgent.duration_ms}ms)<br/>
-                                <em>${subAgent.answer}</em>
-                            </div>
-                        `;
-                    });
-                    html += `</div>`;
+                if (result.pipeline_details && Array.isArray(result.pipeline_details) && result.pipeline_details.length > 1) {
+                    const subAgentStep = result.pipeline_details[1];
+                    if (subAgentStep && subAgentStep.sub_agents && Array.isArray(subAgentStep.sub_agents)) {
+                        html += `<div class="log-entry"><div class="step">[STEP 2] Sub-Agents Execution</div>`;
+                        subAgentStep.sub_agents.forEach(subAgent => {
+                            html += `
+                                <div class="detail" style="margin: 8px 0; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                                    <strong>${subAgent.firm || 'Unknown'}:</strong> ${subAgent.chunks_found || 0} chunks found (${subAgent.duration_ms || 0}ms)<br/>
+                                    <em>${subAgent.answer || 'No answer'}</em>
+                                </div>
+                            `;
+                        });
+                        html += `</div>`;
+                    }
                 }
 
                 // Show synthesis
-                if (result.pipeline_details && result.pipeline_details[2]) {
-                    html += `
-                        <div class="log-entry">
-                            <div class="step">[STEP 3] Coordinator Synthesis</div>
-                            <div class="detail">${result.pipeline_details[2].details}</div>
-                            <div class="detail" style="color: #ffff00; margin-top: 4px;">Duration: ${result.pipeline_details[2].duration_ms}ms</div>
-                        </div>
-                    `;
+                if (result.pipeline_details && Array.isArray(result.pipeline_details) && result.pipeline_details.length > 2) {
+                    const synthesisStep = result.pipeline_details[2];
+                    if (synthesisStep) {
+                        html += `
+                            <div class="log-entry">
+                                <div class="step">[STEP 3] Coordinator Synthesis</div>
+                                <div class="detail">${synthesisStep.details || 'Synthesis complete'}</div>
+                                <div class="detail" style="color: #ffff00; margin-top: 4px;">Duration: ${synthesisStep.duration_ms || 0}ms</div>
+                            </div>
+                        `;
+                    }
                 }
 
                 html += `
                     <div class="log-entry" style="border-top: 1px solid #666; margin-top: 15px; padding-top: 15px;">
-                        <div class="step">Firms Analyzed: ${result.firms_analyzed ? result.firms_analyzed.length : 0}</div>
-                        <div class="detail">${result.firms_analyzed ? result.firms_analyzed.join(', ') : 'N/A'}</div>
+                        <div class="step">Firms Analyzed: ${(result.firms_analyzed && result.firms_analyzed.length) ? result.firms_analyzed.length : 0}</div>
+                        <div class="detail">${(result.firms_analyzed && Array.isArray(result.firms_analyzed)) ? result.firms_analyzed.join(', ') : 'N/A'}</div>
                         <div class="detail" style="color: #ffff00; margin-top: 10px;">Total Time: ${elapsed}ms</div>
                     </div>
                 `;
-            } else if (result.pipeline_details && result.pipeline_details.length > 0) {
+            } else if (result.pipeline_details && Array.isArray(result.pipeline_details) && result.pipeline_details.length > 0) {
                 // Display standard RAG pipeline
                 result.pipeline_details.forEach(step => {
-                    html += `
-                        <div class="log-entry">
-                            <div class="step">[${step.step}] ${step.name}</div>
-                            <div class="detail">${step.details}</div>
-                            <div class="detail" style="color: #ffff00; margin-top: 4px;">Duration: ${step.duration_ms}ms</div>
-                        </div>
-                    `;
+                    if (step && step.name && step.details !== undefined) {
+                        html += `
+                            <div class="log-entry">
+                                <div class="step">[${step.step || '?'}] ${step.name}</div>
+                                <div class="detail">${step.details}</div>
+                                <div class="detail" style="color: #ffff00; margin-top: 4px;">Duration: ${step.duration_ms || 0}ms</div>
+                            </div>
+                        `;
+                    }
                 });
             } else {
                 // Fallback if pipeline_details not available
