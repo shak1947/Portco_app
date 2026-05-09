@@ -1,5 +1,5 @@
 [build]
-cmds = ["apt-get update && apt-get install -y git-lfs", "git lfs install", "git lfs pull", "pip install -r requirements.txt", "python build_embeddings.py"]
+cmds = ["pip install -r requirements.txt"]
 
 [start]
 cmd = "python app.py"
