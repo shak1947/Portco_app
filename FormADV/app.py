@@ -62,8 +62,7 @@ Available firms in the database:
 
     def retrieve(self, question: str) -> dict:
         """Vector search in Supabase for relevant chunks."""
-        print(f"[RETRIEVE] Starting retrieval for: {question}", flush=True)
-        logger.info(f"Retrieving chunks for: {question}")
+        logger.info(f"[RETRIEVE] Starting retrieval for: {question}")
 
         if not supabase:
             print("[RETRIEVE] Supabase not connected!", flush=True)
@@ -79,13 +78,16 @@ Available firms in the database:
             logger.info(f"Generated embedding, shape: {query_embedding.shape}")
 
             # Fetch all embeddings from Supabase (limit for testing)
+            print(f"[RETRIEVE] Fetching embeddings from Supabase table...", flush=True)
             response = supabase.table("form_adv_embeddings").select(
                 "id, firm_name, source_file, page_number, text, embedding"
             ).limit(500).execute()
 
+            print(f"[RETRIEVE] Supabase response: {len(response.data) if response.data else 0} rows", flush=True)
             logger.info(f"Fetched {len(response.data)} embeddings from Supabase")
 
             if not response.data:
+                print("[RETRIEVE] ERROR: No embeddings found in Supabase!", flush=True)
                 logger.info("No embeddings found in Supabase")
                 return {"chunks": [], "count": 0}
 
@@ -238,6 +240,12 @@ def api_query():
         print(f"[ERROR] {e}", flush=True)
         logger.error(f"Error in query: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/debug", methods=["GET"])
+def debug():
+    """Debug endpoint"""
+    return jsonify({"debug": "endpoint works", "supabase": supabase is not None})
 
 
 @app.route("/api/health", methods=["GET"])

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(cd \"c:\\\\AI\\\\FormADV\"; $dirs = @\\(\"chroma_openai\", \"chroma_fresh\", \"chroma\", \"graph.duckdb\"\\); foreach \\($dir in $dirs\\) { $size = \\(Get-ChildItem -Path \"Data\\\\$dir\" -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum\\).Sum; if \\($size\\) { [math]::Round\\($size/1MB, 2\\) | Write-Output \"$dir : $_ MB\" } })",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Form ADV RAG: Clean deployment with embedding build infrastructure *)",
+      "Bash(git push *)",
+      "Bash(python3)"
+    ]
+  }
+}

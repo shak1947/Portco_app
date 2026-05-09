@@ -1,0 +1,8 @@
+# Ignore secret environment files
+*.env
+api key.txt
+
+# Python cache
+__pycache__/
+*.py[cod]
+*~

@@ -1,0 +1,23 @@
+ANSWER:
+## Main Investment Strategies
+
+Based on the provided Form ADV excerpts, **this information is not available in the provided documents**.
+
+The excerpts shown for **Hellman & Friedman**, **Kelso & Company**, and **TA Associates** only contain:
+- Section 5.L (Marketing Activities) disclosures
+- Section 5.G.(3), 5.I.(2), and 5.K.(1) (Separately Managed Accounts) framework language
+
+None of these sections describe investment strategies. Information about investment strategies would typically be found in:
+- **Item 8** of Form ADV Part 2A (Methods of Analysis, Investment Strategies and Risk of Loss)
+- **Item 4** (Advisory Business descriptions)
+
+These sections are not included in the provided excerpts. To answer this question accurately, those additional sections of the Form ADV filings would need to be reviewed.
+
+SOURCES:
+[1] Hellman & Friedman | Page 1 (Similarity: 35.1%)
+[2] Hellman & Friedman | Page 1 (Similarity: 35.1%)
+[3] Hellman & Friedman | Page 1 (Similarity: 35.1%)
+[4] Kelso & Company | Page 1 (Similarity: 35.1%)
+[5] TA Associates | Page 1 (Similarity: 35.1%)
+
+Chunks used: 5
