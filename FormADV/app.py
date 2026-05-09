@@ -113,70 +113,48 @@ Available firms in the database:
                 model="text-embedding-3-small",
                 input=question
             )
-            query_embedding = np.array(embedding_response.data[0].embedding, dtype=np.float32)
-            logger.info(f"Generated embedding, shape: {query_embedding.shape}")
+            query_embedding = embedding_response.data[0].embedding
+            logger.info(f"Generated embedding for query")
 
-            # Fetch embeddings from Supabase - filter by firm if detected
-            query = supabase.table("form_adv_embeddings").select(
-                "id, firm_name, source_file, page_number, text, embedding"
-            )
+            # Use Supabase's pgvector similarity search
+            # Fetch only what we need with vector similarity
+            limit = min(self.top_k * 3, 30)  # Get more than top_k for firm diversity
 
-            if firm_filter:
-                query = query.eq("firm_name", firm_filter)
-                logger.info(f"Filtering to firm: {firm_filter}")
+            try:
+                # Use RPC for vector similarity search
+                response = supabase.rpc(
+                    "match_documents",
+                    {
+                        "query_embedding": query_embedding,
+                        "match_count": limit,
+                        "match_threshold": 0.2
+                    }
+                ).execute()
 
-            response = query.limit(1000).execute()
+                matches = response.data if response.data else []
+                logger.info(f"Vector search returned {len(matches)} results")
 
-            logger.info(f"Fetched {len(response.data)} embeddings from Supabase")
+            except Exception as e:
+                logger.warning(f"Vector search RPC failed, falling back to direct query: {e}")
+                # Fallback: fetch documents without vector search
+                query = supabase.table("form_adv_embeddings").select(
+                    "id, firm_name, source_file, page_number, text"
+                )
+                if firm_filter:
+                    query = query.eq("firm_name", firm_filter)
+                response = query.limit(limit).execute()
+                matches = response.data if response.data else []
 
-            if not response.data:
-                logger.info("No embeddings found in Supabase")
+            if not matches:
+                logger.info("No relevant chunks found")
                 return {"chunks": [], "count": 0}
 
-            # Compute cosine similarity
-            similarities = []
-            for item in response.data:
-                try:
-                    # Parse embedding if it's a string (Supabase returns as JSON string)
-                    embedding = item["embedding"]
-                    if isinstance(embedding, str):
-                        embedding = json.loads(embedding)
-
-                    db_embedding = np.array(embedding, dtype=np.float32)
-
-                    # Verify shapes match
-                    if len(query_embedding) != len(db_embedding):
-                        logger.warning(f"Embedding size mismatch: {len(query_embedding)} vs {len(db_embedding)}")
-                        continue
-
-                    # Cosine similarity
-                    similarity = np.dot(query_embedding, db_embedding) / (
-                        np.linalg.norm(query_embedding) * np.linalg.norm(db_embedding)
-                    )
-                    similarities.append((similarity, item))
-                except Exception as e:
-                    logger.warning(f"Error processing embedding {item.get('id')}: {e}")
-                    continue
-
-            logger.info(f"Computed similarities for {len(similarities)} items")
-
-            # Sort by similarity and take top_k
-            similarities.sort(reverse=True, key=lambda x: x[0])
-
-            # Filter by minimum similarity threshold (0.25 to catch diverse results)
-            min_similarity = 0.25
-            top_results = [s for s in similarities[:self.top_k] if s[0] >= min_similarity]
-
-            if not top_results:
-                logger.info("No chunks met minimum similarity threshold")
-                return {"chunks": [], "count": 0}
-
-            # Deduplicate: limit to 2 chunks per firm to avoid redundancy
+            # Format results: limit to top_k chunks with firm diversity
             chunks = []
             firm_counts = {}
             max_per_firm = 2
 
-            for similarity, match in top_results:
+            for match in matches:
                 firm = match.get("firm_name", "Unknown")
                 firm_counts[firm] = firm_counts.get(firm, 0) + 1
 
@@ -189,11 +167,15 @@ Available firms in the database:
                     "firm_name": firm,
                     "page_number": match.get("page_number", 0),
                     "source_file": match.get("source_file", "Unknown"),
-                    "similarity": round(float(similarity), 3),
+                    "similarity": round(float(match.get("similarity", 0)), 3),
                     "text": match.get("text", "")
                 })
 
-            logger.info(f"Retrieved {len(chunks)} chunks (filtered by similarity >= {min_similarity})")
+                # Stop once we have enough
+                if len(chunks) >= self.top_k:
+                    break
+
+            logger.info(f"Retrieved {len(chunks)} chunks from top {limit} matches")
             return {"chunks": chunks, "count": len(chunks)}
 
         except Exception as e:
